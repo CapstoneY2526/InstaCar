@@ -1,0 +1,18 @@
+# 1. Disable Directory Browsing (Prevents users from seeing the list of files)
+Options -Indexes
+
+# 2. Deny access to dangerous file types
+<FilesMatch "\.(php|pl|py|jsp|asp|sh|cgi|exe)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# 3. Limit file uploads to common image types and PDFs only
+<FilesMatch "\.(?i:jpe?g|png|gif|pdf)$">
+    Order deny,allow
+    Allow from all
+</FilesMatch>
+
+# 4. Prevent script execution even if a script is successfully uploaded
+AddHandler cgi-script .php .php3 .php4 .phtml .pl .py .jsp .asp .sh .cgi
+Options -ExecCGI
