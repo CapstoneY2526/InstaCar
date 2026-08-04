@@ -123,6 +123,19 @@ if ($recent_cars_res) {
     }
 }
 
+function formatNumberShort($num) {
+    if ($num >= 1000000000) {
+        return round($num / 1000000000, 1) . 'B';
+    }
+    if ($num >= 1000000) {
+        return round($num / 1000000, 1) . 'M';
+    }
+    if ($num >= 1000) {
+        return round($num / 1000, 1) . 'k';
+    }
+    return number_format($num);
+}
+
 $pageTitle = 'Admin Dashboard';
 ?>
 
@@ -344,7 +357,7 @@ $pageTitle = 'Admin Dashboard';
                                     <i class="bi bi-cash-stack"></i>
                                 </div>
                                 <div>
-                                    <div class="stat-value">₱<?= number_format($total_revenue, 0) ?></div>
+                                    <div class="stat-value">₱<?= formatNumberShort($total_revenue) ?></div>
                                     <div class="stat-label">Total Revenue</div>
                                     <small class="text-muted stat-subtext">All time</small>
                                 </div>

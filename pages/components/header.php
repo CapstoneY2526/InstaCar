@@ -45,7 +45,7 @@ $firstLetter = strtoupper(substr($name, 0, 1));
     transition: all 0.3s ease;
     position: sticky;
     top: 0;
-    z-index: 999;
+    z-index: 1050; /* Changed from 999 to 1050 */
 }
 
 /* Sidebar toggle button for mobile */

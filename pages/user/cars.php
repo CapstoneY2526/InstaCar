@@ -49,6 +49,17 @@ $cars = [];
 while ($row = mysqli_fetch_assoc($cars_result)) {
     $cars[] = $row;
 }
+
+// Define relative path to the QR image file
+$qr_file_path = __DIR__ . '/public/assets/images/qr_code_payment.png';
+
+// Generate path with version parameter to prevent browser caching
+if (file_exists($qr_file_path)) {
+    $qr_image_src = "public/assets/images/qr_code_payment.png?v=" . filemtime($qr_file_path);
+} else {
+    // Fallback if image file doesn't exist yet
+    $qr_image_src = "public/assets/images/qr_code_payment.png?v=" . time();
+}
 ?>
 
 <?php require_once __DIR__ . '/../components/head.php'; ?>
@@ -422,7 +433,7 @@ while ($row = mysqli_fetch_assoc($cars_result)) {
                                     </div>
                                 </div>
 
-                                <div class="card-body p-3 p-md-4 d-flex flex-column justify-content-between" style="position: relative; overflow: visible;">
+                                <div class="card-body p-3 p-md-4 d-flex flex-column justify-content-between" style="position: relative; z-index: -1;">
                                     <div>
                                         <div class="mb-3">
                                             <h5 class="fw-bold mb-1 text-truncate"><?= htmlspecialchars($car['brand']) ?> <?= htmlspecialchars($car['model']) ?></h5>
@@ -454,7 +465,7 @@ while ($row = mysqli_fetch_assoc($cars_result)) {
                                                 <i class="bi bi-chevron-down small text-muted"></i>
                                             </div>
                                             
-                                            <div class="collapse position-absolute w-100 bg-white border shadow-lg rounded-3 mt-1 rate-dropdown-overlay" id="ratesCollapse<?= $car['id'] ?>" data-parent-card="<?= $car['id'] ?>" style="top: 100%; left: 0; z-index: 99999;">
+                                            <div class="collapse position-absolute w-100 bg-white border shadow-lg rounded-3 mt-1 rate-dropdown-overlay" id="ratesCollapse<?= $car['id'] ?>" data-parent-card="<?= $car['id'] ?>" style="top: 100%; left: 0; z-index: 99;">
                                                 <div class="p-3" style="font-size: 12px; color: #334155;">
                                                     <div class="fw-bold text-secondary border-bottom pb-1 mb-2">Base Multi-Hour Pricing:</div>
                                                     <div class="d-flex justify-content-between mb-1">
@@ -562,12 +573,25 @@ function resetFilters() {
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form action="process/booking_process.php" method="POST" enctype="multipart/form-data" id="bookingForm">
-                <div class="modal-body p-4">
+                <div class="modal-body p-3 p-md-4">
+                    <!-- Hidden Car Data Fields -->
                     <input type="hidden" name="car_id" id="modalCarId">
-                    <input type="hidden" name="price_24_hours" id="modalCarPrice24">
-                    <input type="hidden" name="price_12_hours" id="modalCarPrice12">
-                    <input type="hidden" name="price_10_hours" id="modalCarPrice10">
+                    <input type="hidden" name="price_10_hours" id="modalCarPrice10" value="0">
+                    <input type="hidden" name="price_12_hours" id="modalCarPrice12" value="0">
+                    <input type="hidden" name="price_24_hours" id="modalCarPrice24" value="0">
+                    <input type="hidden" name="ext_price_1_6" id="modalExtPrice1_6" value="0">
+                    <input type="hidden" name="ext_price_7_10" id="modalExtPrice7_10" value="0">
+                    <input type="hidden" name="ext_price_11_12" id="modalExtPrice11_12" value="0">
+                    <input type="hidden" name="ext_price_13_24" id="modalExtPrice13_24" value="0">
 
+                    <!-- Form Formats Expected by Backend -->
+                    <input type="hidden" name="start_date" id="startDate">
+                    <input type="hidden" name="pickup_time" id="pickupTime">
+                    <input type="hidden" name="end_date" id="endDate">
+                    <input type="hidden" name="return_time" id="returnTime">
+                    <input type="hidden" name="total_price" id="totalPriceInput" value="0">
+
+                    <!-- AVAILABILITY CALENDAR SECTION -->
                     <div class="mb-4">
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <label class="form-label fw-bold mb-0">
@@ -594,25 +618,37 @@ function resetFilters() {
 
                     <hr class="text-muted opacity-25">
 
-                    <div class="row g-3 mb-3">
-                        <div class="col-6">
-                            <label class="form-label small fw-bold">Pickup Date</label>
-                            <input type="date" name="start_date" id="startDate" class="form-control" required onchange="validateAndCalculate()" min="<?= date('Y-m-d') ?>">
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label small fw-bold">Return Date</label>
-                            <input type="date" name="end_date" id="endDate" class="form-control" required onchange="validateAndCalculate()" min="<?= date('Y-m-d') ?>">
+                    <!-- QUICK DURATION PRESETS -->
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Quick Duration</label>
+                        <div class="duration-buttons d-flex gap-2 flex-wrap">
+                            <button type="button" class="duration-btn btn btn-outline-primary btn-sm flex-fill" id="btn10h" onclick="setPublicDuration(10, this)">10 Hours</button>
+                            <button type="button" class="duration-btn btn btn-outline-primary btn-sm flex-fill" id="btn24h" onclick="setPublicDuration(24, this)">24 Hours</button>
+                            <button type="button" class="duration-btn btn btn-outline-primary btn-sm flex-fill active" id="btnCustom" onclick="setPublicDuration('custom', this)">Custom</button>
                         </div>
                     </div>
 
+                    <!-- SCHEDULE DATETIME PICKERS -->
                     <div class="row g-3 mb-3">
-                        <div class="col-6">
-                            <label class="form-label small fw-bold">Pickup Time</label>
-                            <input type="time" name="pickup_time" id="pickupTime" class="form-control" required>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small fw-bold">Pickup Date & Time</label>
+                            <input type="datetime-local" id="pickupDatetime" class="form-control" required onchange="syncPublicDateTimeValues()">
                         </div>
-                        <div class="col-6">
-                            <label class="form-label small fw-bold">Return Time</label>
-                            <input type="time" name="return_time" id="returnTime" class="form-control" required>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small fw-bold">Return Date & Time</label>
+                            <input type="datetime-local" id="returnDatetime" class="form-control" required onchange="syncPublicDateTimeValues()">
+                        </div>
+                    </div>
+
+                    <!-- DYNAMIC SCHEDULE SUMMARY & PREVIEW -->
+                    <div class="col-12 date-time-preview mb-3 p-3 bg-light rounded border-start border-4 border-primary" id="dateTimePreview" style="display: none;">
+                        <div class="mb-1 small text-muted">
+                            <i class="bi bi-calendar-plus me-1 text-primary"></i>
+                            <strong>Pickup:</strong> <span id="previewPickup">--</span>
+                        </div>
+                        <div class="small text-muted">
+                            <i class="bi bi-calendar-check me-1 text-success"></i>
+                            <strong>Return:</strong> <span id="previewReturn">--</span>
                         </div>
                     </div>
 
@@ -623,6 +659,7 @@ function resetFilters() {
 
                     <hr class="text-muted opacity-25">
 
+                    <!-- ID & PROOF OF BILLING UPLOADS -->
                     <div class="row g-3 mb-3">
                         <div class="col-12">
                             <label class="form-label small fw-bold text-danger">
@@ -638,18 +675,118 @@ function resetFilters() {
                             <label class="form-label small fw-bold text-muted">Proof of Billing</label>
                             <input type="file" name="proof_of_billing" class="form-control form-control-sm" accept="image/*,.pdf">
                         </div>
+
+                    <!--  PROOF OF PAYMENT SECTION  -->
+                    <div class="col-12 mb-3">
+                        <label for="proofOfPaymentInput" class="form-label small fw-bold text-muted mb-1">Proof of Payment</label>
+                        
+                        <!-- Flex wrapper keeps input & badge side-by-side with no gap -->
+                        <div class="d-flex align-items-center gap-2">
+                            
+                            <!-- File Input -->
+                            <div class="flex-grow-1">
+                                <input type="file" name="proof_of_payment" id="proofOfPaymentInput" class="form-control form-control-sm" accept="image/*,.pdf" required>
+                            </div>
+
+                            <!-- QR Code Button -->
+                            <div class="border rounded-3 p-1 pe-2 bg-white d-inline-flex align-items-center gap-2 shadow-sm flex-shrink-0" 
+                                style="cursor: pointer; height: 38px; transition: all 0.2s ease-in-out;" 
+                                data-bs-toggle="modal" 
+                                data-bs-target="#qrCodeModal" 
+                                title="Click to view & scan Payment QR Code">
+                                
+                                <div class="rounded overflow-hidden bg-light d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                    <img src="../../public/assets/images/qr_code_payment.png?v=<?= time(); ?>" 
+                                        id="formQrCodeThumbnail" 
+                                        alt="Payment QR Code" 
+                                        class="w-100 h-100" 
+                                        style="object-fit: cover;">
+                                </div>
+
+                                <div class="text-start pe-1">
+                                    <div class="text-primary fw-bold lh-1" style="font-size: 11px;">
+                                        <i class="bi bi-qr-code-scan me-1"></i>Scan QR
+                                    </div>
+                                    <span class="text-muted d-block" style="font-size: 9px; line-height: 1;">Tap to open</span>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Subtext sitting cleanly below both elements -->
+                        <div class="form-text text-muted mt-1" style="font-size: 11.5px;">
+                            Scan QR code to pay down payment / full amount, then attach receipt photo.
+                        </div>
                     </div>
 
-                    <div class="p-3 bg-light rounded d-flex justify-content-between align-items-center">
-                        <span class="fw-bold text-muted small">Total Price:</span>
-                        <h4 class="fw-bold text-primary mb-0" id="userDisplayTotal">₱0.00</h4>
+                    <!-- QR CODE ENLARGEMENT MODAL (Keep this directly underneath or at the bottom of your file) -->
+                    <div class="modal fade" id="qrCodeModal" tabindex="-1" aria-labelledby="qrCodeModalLabel" aria-hidden="true" style="z-index: 1060;">
+                            <div class="modal-dialog modal-dialog-centered" style="max-width: 360px;">
+                                <div class="modal-content border-0 shadow-lg text-center overflow-hidden">
+                                    <div class="modal-header bg-primary text-white py-2 px-3 border-0">
+                                        <h6 class="modal-title fw-bold mb-0" id="qrCodeModalLabel">
+                                            <i class="bi bi-qr-code me-1"></i> Payment QR Code
+                                        </h6>
+                                    </div>
+                                    <div class="modal-body p-3 p-sm-4 bg-light">
+                                        <p class="small text-muted mb-3" style="font-size: 12px; line-height: 1.4;">
+                                            Scan this QR Code using GCash / Maya / Banking app to send your payment.
+                                        </p>
+                                        
+                                        <div class="bg-white p-2 p-sm-3 rounded shadow-sm d-inline-block border mb-3 mw-100">
+                                            <img src="../../public/assets/images/qr_code_payment.png?v=<?= time(); ?>" id="modalEnlargedQr" alt="Enlarged Payment QR Code" class="img-fluid" style="max-height: 240px; width: auto; object-fit: contain;">
+                                        </div>
+                                        
+                                        <div class="w-100">
+                                            <div class="alert alert-success border-success-subtle py-2 px-2 m-0 text-wrap fw-bold" style="font-size: 11px; line-height: 1.3;">
+                                                💡 Take a screenshot of payment receipt after scanning
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer border-0 p-2 bg-white justify-content-center">
+                                        <button type="button" 
+                                                class="btn btn-sm btn-secondary fw-semibold px-4" 
+                                                onclick="bootstrap.Modal.getInstance(this.closest('.modal')).hide();">
+                                            Close
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>  
+
+                    <!-- PRICING BREAKDOWN DISPLAY WITH DURATION SUMMARY -->
+                    <div class="p-3 bg-light rounded border">
+                        <div class="d-flex justify-content-between align-items-center mb-1 small text-muted">
+                            <span>Base Rental Rate:</span>
+                            <span id="userDisplayBasePrice">₱0.00</span>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between align-items-center mb-1 small text-muted">
+                            <span>Total Duration:</span>
+                            <span class="fw-semibold text-dark" id="userDurationDisplay">0 Hours</span>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mb-1 small text-danger d-none" id="userDiscountRow">
+                            <span>Discount Deduction:</span>
+                            <span id="userDisplayDiscount">-₱0.00</span>
+                        </div>
+
+                        <hr class="my-2">
+
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="small fw-bold text-dark">Total Due:</span>
+                            <h4 class="fw-bold text-primary mb-0" id="userDisplayTotal">₱0.00</h4>
+                        </div>
                     </div>
 
-                    <div class="mt-2 small text-muted">
+                    <!-- ADDITIONAL INFORMATION -->
+                    <div class="mt-3 small text-muted">
                         <div><i class="bi bi-info-circle me-1"></i> Additional fees apply for delivery and pickup outside our office.</div>
                         <div><i class="bi bi-brush me-1"></i> Carwash fee may apply depending on vehicle condition upon return.</div>
                     </div>
                 </div>
+
                 <div class="modal-footer border-0 p-4 pt-0">
                     <button type="submit" name="confirm_booking" class="btn btn-primary w-100 py-2 fw-bold shadow-sm" id="confirmBtn">Confirm Reservation</button>
                 </div>
@@ -805,19 +942,26 @@ async function showBookingForm() {
     // Populate car data
     document.getElementById('modalCarName').innerText = tempCarData.brand + ' ' + tempCarData.model;
     document.getElementById('modalCarId').value = tempCarData.id;
-    document.getElementById('modalCarPrice24').value = tempCarData.price_24_hours;
-    document.getElementById('modalCarPrice12').value = tempCarData.price_12_hours;
-    document.getElementById('modalCarPrice10').value = tempCarData.price_10_hours;
+    document.getElementById('modalCarPrice24').value = tempCarData.price_24_hours || 0;
+    document.getElementById('modalCarPrice12').value = tempCarData.price_12_hours || 0;
+    document.getElementById('modalCarPrice10').value = tempCarData.price_10_hours || 0;
 
     // Reset dates
-    document.getElementById('startDate').value = '';
-    document.getElementById('endDate').value = '';
+    const pickupDt = document.getElementById('pickupDatetime');
+    const returnDt = document.getElementById('returnDatetime');
+    if (pickupDt) pickupDt.value = '';
+    if (returnDt) returnDt.value = '';
+    
+    if (document.getElementById('startDate')) document.getElementById('startDate').value = '';
+    if (document.getElementById('endDate')) document.getElementById('endDate').value = '';
+    
     selectedStartDate = null;
     selectedEndDate = null;
-    document.getElementById('pickupTime').value = '09:00';
-    document.getElementById('returnTime').value = '17:00';
-    document.getElementById('userDisplayTotal').innerText = '₱0.00';
-    document.getElementById('availabilityWarning').classList.add('d-none');
+    
+    if (document.getElementById('userDisplayTotal')) document.getElementById('userDisplayTotal').innerText = '₱0.00';
+    if (document.getElementById('userDisplayBasePrice')) document.getElementById('userDisplayBasePrice').innerText = '₱0.00';
+    if (document.getElementById('userDurationDisplay')) document.getElementById('userDurationDisplay').innerHTML = '0 Hours';
+    if (document.getElementById('availabilityWarning')) document.getElementById('availabilityWarning').classList.add('d-none');
     
     // Load availability calendar
     await loadAvailabilityCalendar(tempCarData.id);
@@ -942,42 +1086,48 @@ function changeMonth(delta) {
 }
 
 function selectDateFromCalendar(dateString) {
+    const pickupDt = document.getElementById('pickupDatetime');
+    const returnDt = document.getElementById('returnDatetime');
+    
     const startDateInput = document.getElementById('startDate');
     const endDateInput = document.getElementById('endDate');
     const pickupTimeInput = document.getElementById('pickupTime');
     const returnTimeInput = document.getElementById('returnTime');
     
+    const timeStart = (pickupTimeInput && pickupTimeInput.value) ? pickupTimeInput.value : '09:00';
+    const timeReturn = (returnTimeInput && returnTimeInput.value) ? returnTimeInput.value : '17:00';
+
     if (!selectedStartDate || (selectedStartDate && selectedEndDate)) {
-        startDateInput.value = dateString;
         selectedStartDate = dateString;
         selectedEndDate = null;
-        endDateInput.value = '';
+        
+        if (startDateInput) startDateInput.value = dateString;
+        if (endDateInput) endDateInput.value = '';
+        
+        if (pickupDt) pickupDt.value = `${dateString}T${timeStart}`;
+        if (returnDt) returnDt.value = '';
+        
         highlightSelectedDates(dateString, null);
     } else {
         if (dateString < selectedStartDate) {
-            startDateInput.value = dateString;
             selectedStartDate = dateString;
-            endDateInput.value = '';
             selectedEndDate = null;
+            
+            if (startDateInput) startDateInput.value = dateString;
+            if (endDateInput) endDateInput.value = '';
+            
+            if (pickupDt) pickupDt.value = `${dateString}T${timeStart}`;
+            if (returnDt) returnDt.value = '';
+            
             highlightSelectedDates(dateString, null);
         } else {
-            endDateInput.value = dateString;
             selectedEndDate = dateString;
+            
+            if (endDateInput) endDateInput.value = dateString;
+            if (returnDt) returnDt.value = `${dateString}T${timeReturn}`;
+            
             highlightSelectedDates(selectedStartDate, dateString);
-            
-            const start = new Date(`${selectedStartDate}T${pickupTimeInput.value || '09:00'}`);
-            const end = new Date(`${dateString}T${returnTimeInput.value || '17:00'}`);
-            const hours = (end - start) / (1000 * 60 * 60);
-            
-            if (hours < 10) {
-                const warningDiv = document.getElementById('availabilityWarning');
-                const warningMsg = document.getElementById('warningMessage');
-                warningDiv.classList.remove('d-none');
-                warningMsg.innerHTML = `⚠️ Minimum booking is 10 hours. Current duration: ${hours.toFixed(1)} hours. Please select a later return date.`;
-                document.getElementById('confirmBtn').disabled = true;
-            } else {
-                validateAndCalculate();
-            }
+            validateAndCalculate();
         }
     }
 }
@@ -987,11 +1137,36 @@ function highlightSelectedDates(start, end) {
 }
 
 async function validateAndCalculate() {
-    const carId = document.getElementById('modalCarId').value;
-    const startDate = document.getElementById('startDate').value;
-    const endDate = document.getElementById('endDate').value;
-    const startTime = document.getElementById('pickupTime').value;
-    const endTime = document.getElementById('returnTime').value;
+    let carId = document.getElementById('modalCarId')?.value;
+    
+    let startDate = '', startTime = '', endDate = '', endTime = '';
+    
+    const pickupDt = document.getElementById('pickupDatetime');
+    const returnDt = document.getElementById('returnDatetime');
+    
+    if (pickupDt && pickupDt.value) {
+        const parts = pickupDt.value.split('T');
+        startDate = parts[0];
+        startTime = parts[1] || '09:00';
+    } else {
+        startDate = document.getElementById('startDate')?.value || '';
+        startTime = document.getElementById('pickupTime')?.value || '09:00';
+    }
+
+    if (returnDt && returnDt.value) {
+        const parts = returnDt.value.split('T');
+        endDate = parts[0];
+        endTime = parts[1] || '17:00';
+    } else {
+        endDate = document.getElementById('endDate')?.value || '';
+        endTime = document.getElementById('returnTime')?.value || '17:00';
+    }
+
+    if (document.getElementById('startDate')) document.getElementById('startDate').value = startDate;
+    if (document.getElementById('pickupTime')) document.getElementById('pickupTime').value = startTime;
+    if (document.getElementById('endDate')) document.getElementById('endDate').value = endDate;
+    if (document.getElementById('returnTime')) document.getElementById('returnTime').value = endTime;
+
     const warningDiv = document.getElementById('availabilityWarning');
     const warningMsg = document.getElementById('warningMessage');
     const confirmBtn = document.getElementById('confirmBtn');
@@ -1006,10 +1181,13 @@ async function validateAndCalculate() {
     const hours = (end - start) / (1000 * 60 * 60);
     
     if (hours < 10) {
-        warningDiv.classList.remove('d-none');
-        warningMsg.innerHTML = `⚠️ Minimum booking is 10 hours. Current duration: ${hours.toFixed(1)} hours. Please adjust your schedule.`;
-        confirmBtn.disabled = true;
-        document.getElementById('userDisplayTotal').innerHTML = '<span class="text-danger">Minimum 10 hours required!</span>';
+        if (warningDiv && warningMsg) {
+            warningDiv.classList.remove('d-none');
+            warningMsg.innerHTML = `⚠️ Minimum booking is 10 hours. Current duration: ${hours.toFixed(1)} hours. Please adjust your schedule.`;
+        }
+        if (confirmBtn) confirmBtn.disabled = true;
+        if (document.getElementById('userDisplayTotal')) document.getElementById('userDisplayTotal').innerHTML = '<span class="text-danger">Minimum 10 hours required!</span>';
+        if (document.getElementById('userDurationDisplay')) document.getElementById('userDurationDisplay').innerHTML = `<span class="text-danger">${hours.toFixed(1)} Hours (Min 10h)</span>`;
         return false;
     }
     
@@ -1033,169 +1211,278 @@ async function validateAndCalculate() {
         }
     }
     
-    if (!hasConflict) {
-        const checkResponse = await fetch(`process/check_date_range.php`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                car_id: carId,
-                start_date: startDate,
-                end_date: endDate,
-                start_time: startTime,
-                end_time: endTime
-            })
-        });
-        
-        const checkData = await checkResponse.json();
-        if (!checkData.available) {
-            hasConflict = true;
-            conflictMessage = checkData.message || 'Selected dates conflict with existing booking';
-        }
+    if (!hasConflict && carId) {
+        try {
+            const checkResponse = await fetch(`process/check_date_range.php`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    car_id: carId,
+                    start_date: startDate,
+                    end_date: endDate,
+                    start_time: startTime,
+                    end_time: endTime
+                })
+            });
+            
+            const checkData = await checkResponse.json();
+            if (!checkData.available) {
+                hasConflict = true;
+                conflictMessage = checkData.message || 'Selected dates conflict with existing booking';
+            }
+        } catch(e) {}
     }
     
     if (hasConflict) {
-        warningDiv.classList.remove('d-none');
-        warningMsg.innerText = conflictMessage;
-        confirmBtn.disabled = true;
-        document.getElementById('userDisplayTotal').innerText = '₱0.00';
+        if (warningDiv && warningMsg) {
+            warningDiv.classList.remove('d-none');
+            warningMsg.innerText = conflictMessage;
+        }
+        if (confirmBtn) confirmBtn.disabled = true;
+        if (document.getElementById('userDisplayTotal')) document.getElementById('userDisplayTotal').innerText = '₱0.00';
         return false;
     } else {
-        warningDiv.classList.add('d-none');
-        confirmBtn.disabled = false;
+        if (warningDiv) warningDiv.classList.add('d-none');
+        if (confirmBtn) confirmBtn.disabled = false;
         calculateUserTotal();
         return true;
     }
 }
 
+let currentSelectedDurationMode = 'custom';
+
+function setPublicDuration(hours, element) {
+    const durationContainer = element ? element.closest('.duration-buttons') : document;
+    if (durationContainer) {
+        durationContainer.querySelectorAll('.duration-btn').forEach(btn => btn.classList.remove('active'));
+    }
+    if (element) {
+        element.classList.add('active');
+    }
+
+    currentSelectedDurationMode = hours;
+    const returnDt = document.getElementById('returnDatetime');
+
+    if (hours !== 'custom') {
+        if (returnDt) returnDt.readOnly = true;
+        applyQuickDurationPreset(hours);
+    } else {
+        if (returnDt) returnDt.readOnly = false;
+        validateAndCalculate();
+    }
+}
+
+function applyQuickDurationPreset(hours) {
+    const pickupDt = document.getElementById('pickupDatetime');
+    const returnDt = document.getElementById('returnDatetime');
+
+    let startDatetime = null;
+
+    if (pickupDt && pickupDt.value) {
+        startDatetime = new Date(pickupDt.value);
+    } else if (selectedStartDate) {
+        startDatetime = new Date(`${selectedStartDate}T09:00`);
+    }
+
+    if (!startDatetime || isNaN(startDatetime.getTime())) {
+        startDatetime = new Date();
+    }
+
+    const endDatetime = new Date(startDatetime.getTime() + (parseInt(hours) * 60 * 60 * 1000));
+
+    const tzOffsetStart = startDatetime.getTimezoneOffset() * 60000;
+    const tzOffsetEnd = endDatetime.getTimezoneOffset() * 60000;
+
+    const formattedStartISO = new Date(startDatetime.getTime() - tzOffsetStart).toISOString().slice(0, 16);
+    const formattedEndISO = new Date(endDatetime.getTime() - tzOffsetEnd).toISOString().slice(0, 16);
+
+    if (pickupDt) pickupDt.value = formattedStartISO;
+    if (returnDt) returnDt.value = formattedEndISO;
+
+    selectedStartDate = formattedStartISO.split('T')[0];
+    selectedEndDate = formattedEndISO.split('T')[0];
+
+    highlightSelectedDates(selectedStartDate, selectedEndDate);
+    validateAndCalculate();
+}
+
 async function calculateUserTotal() {
-    const carId = document.getElementById('modalCarId').value;
-    const startDate = document.getElementById('startDate').value;
-    const startTime = document.getElementById('pickupTime').value;
-    const endDate = document.getElementById('endDate').value;
-    const endTime = document.getElementById('returnTime').value;
+    const carId = document.getElementById('modalCarId')?.value;
     
-    const price10 = parseFloat(document.getElementById('modalCarPrice10').value) || 0;
-    const price12 = parseFloat(document.getElementById('modalCarPrice12').value) || 0;
-    const price24 = parseFloat(document.getElementById('modalCarPrice24').value) || 0;
+    let startDate = '', startTime = '', endDate = '', endTime = '';
+    
+    const pickupDt = document.getElementById('pickupDatetime');
+    const returnDt = document.getElementById('returnDatetime');
+
+    if (pickupDt && pickupDt.value) {
+        const parts = pickupDt.value.split('T');
+        startDate = parts[0];
+        startTime = parts[1] || '09:00';
+    } else {
+        startDate = document.getElementById('startDate')?.value;
+        startTime = document.getElementById('pickupTime')?.value;
+    }
+
+    if (returnDt && returnDt.value) {
+        const parts = returnDt.value.split('T');
+        endDate = parts[0];
+        endTime = parts[1] || '17:00';
+    } else {
+        endDate = document.getElementById('endDate')?.value;
+        endTime = document.getElementById('returnTime')?.value;
+    }
+
     const confirmBtn = document.getElementById('confirmBtn');
+    const userDisplayTotal = document.getElementById('userDisplayTotal');
+    const userDisplayBasePrice = document.getElementById('userDisplayBasePrice');
+    const userDurationDisplay = document.getElementById('userDurationDisplay');
 
     if (!startDate || !startTime || !endDate || !endTime) {
-        document.getElementById('userDisplayTotal').innerText = '₱0.00';
+        if (userDisplayTotal) userDisplayTotal.innerText = '₱0.00';
+        if (userDurationDisplay) userDurationDisplay.innerText = '0 Hours';
         return;
     }
 
     const start = new Date(`${startDate}T${startTime}`);
     const end = new Date(`${endDate}T${endTime}`);
-    
+
     if (end <= start) {
-        document.getElementById('userDisplayTotal').innerText = 'Invalid: Return must be after pickup';
-        confirmBtn.disabled = true;
+        if (userDisplayTotal) userDisplayTotal.innerHTML = '<span class="text-danger">Invalid schedule</span>';
+        if (userDurationDisplay) userDurationDisplay.innerHTML = '<span class="text-danger">Invalid dates</span>';
+        if (confirmBtn) confirmBtn.disabled = true;
         return;
     }
-    
-    const hours = (end - start) / (1000 * 60 * 60);
-    const days = Math.ceil(hours / 24);
-    
+
+    const diffMs = end - start;
+    const hours = Math.ceil(diffMs / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+
+    // Format human-readable duration label
+    let durationText = `${hours} Hours`;
+    if (hours >= 24) {
+        const remHours = hours % 24;
+        durationText = remHours > 0 ? `${days} Day(s), ${remHours} Hr(s)` : `${days} Day(s) (${hours} Hours)`;
+    }
+
     if (hours < 10) {
-        document.getElementById('userDisplayTotal').innerHTML = '<span class="text-danger">⚠️ Minimum booking is 10 hours!</span>';
-        confirmBtn.disabled = true;
+        if (userDisplayTotal) userDisplayTotal.innerHTML = '<span class="text-danger">⚠️ Min 10h</span>';
+        if (userDurationDisplay) userDurationDisplay.innerHTML = `<span class="text-danger">${hours} Hours (Min 10h)</span>`;
+        if (confirmBtn) confirmBtn.disabled = true;
         return;
     } else {
-        confirmBtn.disabled = false;
+        if (userDurationDisplay) userDurationDisplay.innerHTML = `<span class="text-success fw-bold">${durationText} ✓</span>`;
+        if (confirmBtn) confirmBtn.disabled = false;
     }
-    
+
     try {
         const formData = new FormData();
         formData.append('car_id', carId);
+        formData.append('start_datetime', `${startDate} ${startTime}`);
+        formData.append('end_datetime', `${endDate} ${endTime}`);
         formData.append('hours', hours);
         formData.append('days', days);
-        
+
         const response = await fetch('process/calculate_price.php', {
             method: 'POST',
             body: formData
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
-            document.getElementById('userDisplayTotal').innerHTML = '₱' + result.total_price.toLocaleString('en-PH', { 
-                minimumFractionDigits: 2,
+            const formattedPrice = '₱' + result.total_price.toLocaleString('en-PH', { 
+                minimumFractionDigits: 2, 
                 maximumFractionDigits: 2 
             });
+            
+            if (userDisplayTotal) userDisplayTotal.innerText = formattedPrice;
+            if (userDisplayBasePrice) userDisplayBasePrice.innerText = formattedPrice;
+            if (document.getElementById('totalPriceInput')) document.getElementById('totalPriceInput').value = result.total_price;
         } else {
-            fallbackCalculateTotal(hours, days, price10, price12, price24);
+            fallbackCalculateTotal(hours);
         }
     } catch (error) {
-        console.error('Error calculation exception:', error);
-        fallbackCalculateTotal(hours, days, price10, price12, price24);
+        fallbackCalculateTotal(hours);
     }
 }
 
-function fallbackCalculateTotal(hours, days, price10, price12, price24) {
+function fallbackCalculateTotal(hours) {
     const confirmBtn = document.getElementById('confirmBtn');
+    
+    const p10 = parseFloat(document.getElementById('modalCarPrice10')?.value) || 0;
+    const p12 = parseFloat(document.getElementById('modalCarPrice12')?.value) || 0;
+    const p24 = parseFloat(document.getElementById('modalCarPrice24')?.value) || 0;
+
+    const ext1_6   = parseFloat(document.getElementById('modalExtPrice1_6')?.value) || 0;
+    const ext7_10  = parseFloat(document.getElementById('modalExtPrice7_10')?.value) || 0;
+    const ext11_12 = parseFloat(document.getElementById('modalExtPrice11_12')?.value) || 0;
+    const ext13_24 = parseFloat(document.getElementById('modalExtPrice13_24')?.value) || 0;
+
     let total = 0;
-    
+
     if (hours <= 10) {
-        total = price10 > 0 ? price10 : 1099;
+        total = p10 > 0 ? p10 : 1099;
     } else if (hours <= 12) {
-        total = price12 > 0 ? price12 : 1300;
+        total = p12 > 0 ? p12 : 1300;
+    } else if (hours <= 24) {
+        total = p24 > 0 ? p24 : 1500;
     } else {
-        total = days * (price24 > 0 ? price24 : 1500);
+        const days = Math.floor(hours / 24);
+        const extraHours = hours % 24;
+        
+        total = days * (p24 > 0 ? p24 : 1500);
+
+        if (extraHours > 0) {
+            if (extraHours <= 6) total += ext1_6;
+            else if (extraHours <= 10) total += ext7_10;
+            else if (extraHours <= 12) total += ext11_12;
+            else total += ext13_24;
+        }
     }
-    
+
     total = Math.round(total * 100) / 100;
-    document.getElementById('userDisplayTotal').innerHTML = '₱' + total.toLocaleString('en-PH', { 
-        minimumFractionDigits: 2,
+    const formattedTotal = '₱' + total.toLocaleString('en-PH', { 
+        minimumFractionDigits: 2, 
         maximumFractionDigits: 2 
     });
-    confirmBtn.disabled = false;
+
+    if (document.getElementById('userDisplayTotal')) document.getElementById('userDisplayTotal').innerText = formattedTotal;
+    if (document.getElementById('userDisplayBasePrice')) document.getElementById('userDisplayBasePrice').innerText = formattedTotal;
+    if (document.getElementById('totalPriceInput')) document.getElementById('totalPriceInput').value = total;
+
+    if (confirmBtn) confirmBtn.disabled = false;
 }
 
+// Event Listeners
 document.addEventListener('DOMContentLoaded', function() {
+    const pickupDt = document.getElementById('pickupDatetime');
+    const returnDt = document.getElementById('returnDatetime');
+
+    if (pickupDt) pickupDt.addEventListener('change', validateAndCalculate);
+    if (returnDt) returnDt.addEventListener('change', validateAndCalculate);
+
     const startDateInput = document.getElementById('startDate');
     const endDateInput = document.getElementById('endDate');
     const pickupTimeInput = document.getElementById('pickupTime');
     const returnTimeInput = document.getElementById('returnTime');
-    
-    if (startDateInput) {
-        startDateInput.addEventListener('change', () => {
-            selectedStartDate = startDateInput.value;
-            if (startDateInput.value && endDateInput.value) {
-                highlightSelectedDates(startDateInput.value, endDateInput.value);
-            }
-            validateAndCalculate();
-        });
-    }
-    
-    if (endDateInput) {
-        endDateInput.addEventListener('change', () => {
-            selectedEndDate = endDateInput.value;
-            if (startDateInput.value && endDateInput.value) {
-                highlightSelectedDates(startDateInput.value, endDateInput.value);
-            }
-            validateAndCalculate();
-        });
-    }
-    
-    if (pickupTimeInput) { pickupTimeInput.addEventListener('change', validateAndCalculate); }
-    if (returnTimeInput) { returnTimeInput.addEventListener('change', validateAndCalculate); }
+
+    if (startDateInput) startDateInput.addEventListener('change', validateAndCalculate);
+    if (endDateInput) endDateInput.addEventListener('change', validateAndCalculate);
+    if (pickupTimeInput) pickupTimeInput.addEventListener('change', validateAndCalculate);
+    if (returnTimeInput) returnTimeInput.addEventListener('change', validateAndCalculate);
 });
 
 document.addEventListener('DOMContentLoaded', function() {
     const dropdownElements = document.querySelectorAll('.rate-dropdown-overlay');
     
-    // 1. STACKING FIX & ACCORDION BEHAVIOR (Only allow one pricing dropdown open at a time)
     dropdownElements.forEach(dropdown => {
         const carId = dropdown.getAttribute('data-parent-card');
         const parentCard = document.querySelector(`.card[data-car-id="${carId}"]`);
         
         if (parentCard) {
-            // When this dropdown begins showing
             dropdown.addEventListener('show.bs.collapse', function() {
-                // Elevate z-index so it floats above rows/cards underneath
                 parentCard.style.zIndex = '9999';
                 
-                // CLOSE ALL OTHER OPEN PRICING DROPDOWNS EXCEPT THIS ONE
                 dropdownElements.forEach(otherDropdown => {
                     if (otherDropdown !== dropdown && otherDropdown.classList.contains('show')) {
                         const bsCollapse = bootstrap.Collapse.getInstance(otherDropdown);
@@ -1206,26 +1493,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             });
             
-            // Revert stacking index back to normal upon closing
             dropdown.addEventListener('hide.bs.collapse', function() {
                 parentCard.style.zIndex = '1';
             });
         }
     });
 
-    // 2. CLICK OUTSIDE TO CLOSE
     document.addEventListener('click', function(event) {
         dropdownElements.forEach(dropdown => {
-            // Only check dropdowns that are currently open
             if (dropdown.classList.contains('show')) {
                 const carId = dropdown.getAttribute('data-parent-card');
-                const parentCard = document.querySelector(`.card[data-car-id="${carId}"]`);
-                
-                // Find the toggle button associated with this collapse instance
                 const toggleBtn = document.querySelector(`[data-bs-target="#ratesCollapse${carId}"]`);
                 
-                // If the user clicked outside the dropdown box AND outside the button that triggers it
-                if (!dropdown.contains(event.target) && !toggleBtn.contains(event.target)) {
+                if (toggleBtn && !dropdown.contains(event.target) && !toggleBtn.contains(event.target)) {
                     const bsCollapse = bootstrap.Collapse.getInstance(dropdown);
                     if (bsCollapse) {
                         bsCollapse.hide();
@@ -1236,7 +1516,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-
 function openStashGalleryModal(imagesArray) {
     const modalEl = document.getElementById('stashGalleryModal');
     const carouselEl = document.getElementById('stashGalleryCarousel');
@@ -1245,11 +1524,9 @@ function openStashGalleryModal(imagesArray) {
     const prevBtn = document.getElementById('stashCarouselPrevBtn');
     const nextBtn = document.getElementById('stashCarouselNextBtn');
     
-    // Clear old data out of the modal view components
     container.innerHTML = '';
     thumbsContainer.innerHTML = '';
     
-    // Dispose of any lingering old Bootstrap carousel instances safely
     let existingCarousel = bootstrap.Carousel.getInstance(carouselEl);
     if (existingCarousel) {
         existingCarousel.dispose();
@@ -1257,7 +1534,6 @@ function openStashGalleryModal(imagesArray) {
 
     if (!imagesArray || imagesArray.length === 0) return;
 
-    // Toggle nav controls based on target item count arrays
     if (imagesArray.length <= 1) {
         prevBtn.classList.add('d-none');
         nextBtn.classList.add('d-none');
@@ -1266,11 +1542,9 @@ function openStashGalleryModal(imagesArray) {
         nextBtn.classList.remove('d-none');
     }
 
-    // Build the markup nodes 
     imagesArray.forEach((imgName, idx) => {
         const fullPath = `../../public/assets/images/cars/${imgName}`;
         
-        // 1. Generate Main Slides Track Element
         const itemDiv = document.createElement('div');
         itemDiv.className = `carousel-item ${idx === 0 ? 'active' : ''}`;
         itemDiv.innerHTML = `
@@ -1278,7 +1552,6 @@ function openStashGalleryModal(imagesArray) {
         `;
         container.appendChild(itemDiv);
         
-        // 2. Generate Horizontal Mini Bottom Navigation Track Item
         if (imagesArray.length > 1) {
             const thumbImg = document.createElement('img');
             thumbImg.src = fullPath;
@@ -1293,10 +1566,8 @@ function openStashGalleryModal(imagesArray) {
         }
     });
 
-    // Fire the global Modal layout controller logic
     let bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
     
-    // Clean listener definitions tracking highlight indicator updating states
     carouselEl.addEventListener('slide.bs.carousel', event => {
         const thumbs = thumbsContainer.querySelectorAll('img');
         thumbs.forEach((t, i) => {

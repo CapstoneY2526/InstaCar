@@ -536,13 +536,33 @@ body { overflow-x: hidden; }
                                                     </div>
                                                 </td>
                                                 <td data-label="Verification">
-                                                    <?php if (!empty($b['primary_id_path'])): ?>
-                                                        <a href="../../public/assets/images/ids/<?= $b['primary_id_path'] ?>" target="_blank" class="btn btn-xs btn-outline-info py-0 px-1" style="font-size: 10px;"><i class="bi bi-file-image"></i> View ID 1</a>
-                                                    <?php else: ?>
-                                                        <span class="text-muted" style="font-size: 10px;">No ID</span>
-                                                    <?php endif; ?>
-                                                    <?php if (!empty($b['secondary_id_path'])): ?><a href="../../public/assets/images/ids/<?= $b['secondary_id_path'] ?>" target="_blank" class="btn btn-xs btn-outline-info py-0 px-1" style="font-size: 10px;"><i class="bi bi-file-image"></i> View ID 2</a><?php endif; ?>
-                                                    <?php if (!empty($b['proof_billing_path'])): ?><a href="../../public/assets/images/ids/<?= $b['proof_billing_path'] ?>" target="_blank" class="btn btn-xs btn-outline-info py-0 px-1" style="font-size: 10px;"><i class="bi bi-file-image"></i> View PROOF</a><?php endif; ?>
+                                                    <div class="d-flex flex-wrap gap-1 align-items-center">
+                                                        <?php if (!empty($b['primary_id_path'])): ?>
+                                                            <a href="../../public/assets/images/ids/<?= $b['primary_id_path'] ?>" target="_blank" class="btn btn-xs btn-outline-info py-0 px-1" style="font-size: 10px;">
+                                                                <i class="bi bi-file-image"></i> View ID 1
+                                                            </a>
+                                                        <?php else: ?>
+                                                            <span class="text-muted" style="font-size: 10px;">No ID</span>
+                                                        <?php endif; ?>
+
+                                                        <?php if (!empty($b['secondary_id_path'])): ?>
+                                                            <a href="../../public/assets/images/ids/<?= $b['secondary_id_path'] ?>" target="_blank" class="btn btn-xs btn-outline-info py-0 px-1" style="font-size: 10px;">
+                                                                <i class="bi bi-file-image"></i> View ID 2
+                                                            </a>
+                                                        <?php endif; ?>
+
+                                                        <?php if (!empty($b['proof_billing_path'])): ?>
+                                                            <a href="../../public/assets/images/ids/<?= $b['proof_billing_path'] ?>" target="_blank" class="btn btn-xs btn-outline-info py-0 px-1" style="font-size: 10px;">
+                                                                <i class="bi bi-file-image"></i> View PROOF
+                                                            </a>
+                                                        <?php endif; ?>
+
+                                                        <?php if (!empty($b['proof_payment_path'])): ?>
+                                                            <a href="../../public/assets/images/ids/<?= $b['proof_payment_path'] ?>" target="_blank" class="btn btn-xs btn-outline-info py-0 px-1" style="font-size: 10px;">
+                                                                <i class="bi bi-receipt"></i> View PAYMENT
+                                                            </a>
+                                                        <?php endif; ?>
+                                                    </div>
                                                 </td>
                                                 <td class="fw-bold <?= $b['status'] == 'Cancelled' ? 'text-danger' : '' ?>" data-label="Total">
                                                     <?php if ($b['status'] == 'Cancelled'): ?>

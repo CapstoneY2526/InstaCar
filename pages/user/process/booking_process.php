@@ -81,6 +81,7 @@ if (isset($_POST['confirm_booking'])) {
     $primary_id_path = "";
     $secondary_id_path = "";
     $proof_billing_path = "";
+    $proof_payment_path = ""; // <-- Variable initialized
     
     $booking_timestamp = time();
     
@@ -119,19 +120,30 @@ if (isset($_POST['confirm_booking'])) {
             $proof_billing_path = $user_folder . "/" . $filename;
         }
     }
+
+    // Upload Proof of Payment (ADDED)
+    if (!empty($_FILES['proof_of_payment']['name'])) {
+        $ext = strtolower(pathinfo($_FILES['proof_of_payment']['name'], PATHINFO_EXTENSION));
+        $filename = "payment_" . $booking_timestamp . "." . $ext;
+        $target_file = $user_upload_dir . $filename;
+        if (move_uploaded_file($_FILES['proof_of_payment']['tmp_name'], $target_file)) {
+            $proof_payment_path = $user_folder . "/" . $filename;
+        }
+    }
     
+    // Insert into database (ADDED proof_payment_path column & value)
     $sql = "INSERT INTO bookings (
                 user_id, car_id, start_date, end_date, 
                 pickup_time, return_time, 
                 total_price, discount_price, down_payment,
                 status, booking_type,
-                primary_id_path, secondary_id_path, proof_billing_path
+                primary_id_path, secondary_id_path, proof_billing_path, proof_payment_path
             ) VALUES (
                 '$user_id', '$car_id', '$start_date', '$end_date', 
                 '$pickup_time', '$return_time', 
                 '$total_price', '$discount_price', '$down_payment',
                 'Pending', 'online',
-                '$primary_id_path', '$secondary_id_path', '$proof_billing_path'
+                '$primary_id_path', '$secondary_id_path', '$proof_billing_path', '$proof_payment_path'
             )";
     
     if (mysqli_query($conn, $sql)) {

@@ -709,6 +709,7 @@ if ($result) {
             </div>
             
             <div class="modal-body p-4">
+                <input type="hidden" name="update_car" value="1">
                 <input type="hidden" name="id" value="<?= $car['id'] ?>">
 
                 <!-- EDIT STASH LAYER START -->

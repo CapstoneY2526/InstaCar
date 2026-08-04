@@ -67,4 +67,52 @@ if (isset($_POST['update_password'])) {
     <?php
     exit();
 }
+
+// --- UPLOAD PAYMENT QR CODE ACTION ---
+if (isset($_POST['upload_qr_code'])) {
+    if (!isset($_FILES['qr_code_image']) || $_FILES['qr_code_image']['error'] !== UPLOAD_ERR_OK) {
+        $_SESSION['error'] = "File upload failed. Please try again.";
+        ?>
+        <script>window.location.href = "<?php echo $_SERVER['HTTP_REFERER']; ?>";</script>
+        <?php
+        exit();
+    }
+
+    $fileTmpPath = $_FILES['qr_code_image']['tmp_name'];
+    
+    // Get actual mime type from the file content for better security
+    $fileInfo = @getimagesize($fileTmpPath);
+    $mimeType = $fileInfo ? $fileInfo['mime'] : '';
+
+    $allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!in_array($mimeType, $allowedTypes)) {
+        $_SESSION['error'] = "Invalid image type! Please upload a PNG, JPG, or WEBP image.";
+        ?>
+        <script>window.location.href = "<?php echo $_SERVER['HTTP_REFERER']; ?>";</script>
+        <?php
+        exit();
+    }
+
+    $targetDir = __DIR__ . "/../../../public/assets/images/";
+    if (!is_dir($targetDir)) {
+        mkdir($targetDir, 0755, true);
+    }
+
+    // Target destination file
+    $targetFilePath = $targetDir . "qr_code_payment.png";
+
+    // Standard move and overwrite
+    if (move_uploaded_file($fileTmpPath, $targetFilePath)) {
+        // Touch file to guarantee the modification time changes for cache-busting
+        touch($targetFilePath);
+        $_SESSION['success'] = "Payment QR code updated successfully!";
+    } else {
+        $_SESSION['error'] = "Failed to save QR code image file to server.";
+    }
+
+    ?>
+    <script>window.location.href = "<?php echo $_SERVER['HTTP_REFERER']; ?>";</script>
+    <?php
+    exit();
+}
 ?>

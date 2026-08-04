@@ -280,18 +280,17 @@ require_once __DIR__ . '/../components/head.php';
                                         <div class="fw-semibold text-dark"><?= htmlspecialchars($r['brand']) ?> <?= htmlspecialchars($r['model']) ?></div>
                                         <div class="text-muted small"><?= htmlspecialchars($r['plate_number']) ?></div>
                                     </td>
-                                    <td data-label="Feedback" style="min-width: 320px;">
-                                        <div class="rating-stars mb-1">
-                                            <?= str_repeat('★', $r['rating']) . str_repeat('☆', 5 - $r['rating']) ?>
-                                        </div>
-                                        <div class="fw-bold text-dark small mb-1"><?= htmlspecialchars($r['review_title']) ?></div>
-                                        <p class="text-secondary small mb-0" style="line-height: 1.5;"><?= htmlspecialchars($r['review_text']) ?></p>
-                                        
-                                        <?php if (!empty($r['admin_reply'])): ?>
-                                            <div class="reply-box">
-                                                <strong class="text-primary">Admin Reply:</strong> <?= htmlspecialchars($r['admin_reply']) ?>
+                                    <td data-label="Feedback">
+                                        <div class="d-flex flex-column gap-1">
+                                            <!-- Top: Rating -->
+                                            <div class="text-warning fw-bold small">
+                                                <?= number_format((float)$r['rating'], 1) ?> ★
                                             </div>
-                                        <?php endif; ?>
+                                            <!-- Bottom: Title -->
+                                            <span class="text-truncate text-secondary small" style="max-width: 250px;">
+                                                <?= htmlspecialchars($r['review_title']) ?>
+                                            </span>
+                                        </div>
                                     </td>
                                     <td class="text-md-center" data-label="Status">
                                         <?php $replied = !empty($r['admin_reply']); ?>
@@ -301,12 +300,17 @@ require_once __DIR__ . '/../components/head.php';
                                     </td>
                                     <td class="px-md-4 text-end" data-label="Action">
                                         <button type="button"
-                                            class="btn btn-primary btn-sm reply-button px-3 py-2 fw-semibold"
-                                            style="border-radius: 8px; font-size: 13px;"
-                                            data-id="<?= $r['id'] ?>"
-                                            data-reply="<?= htmlspecialchars($r['admin_reply'] ?? '', ENT_QUOTES) ?>">
+                                                class="btn btn-primary btn-sm reply-button px-3 py-2 fw-semibold"
+                                                style="border-radius: 8px; font-size: 13px;"
+                                                data-id="<?= $r['id'] ?>"
+                                                data-rating="<?= (int)$r['rating'] ?>"
+                                                data-title="<?= htmlspecialchars($r['review_title'], ENT_QUOTES) ?>"
+                                                data-text="<?= htmlspecialchars($r['review_text'], ENT_QUOTES) ?>"
+                                                data-reply="<?= htmlspecialchars($r['admin_reply'] ?? '', ENT_QUOTES) ?>"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#replyModal">
                                             <i class="bi bi-chat-left-dots-fill me-1"></i>
-                                            <?= !empty($r['admin_reply']) ? 'Edit Reply' : 'Reply' ?>
+                                            <?= !empty($r['admin_reply']) ? 'Show & Edit Reply' : 'Reply' ?>
                                         </button>
                                     </td>
                                 </tr>
@@ -322,32 +326,52 @@ require_once __DIR__ . '/../components/head.php';
     </div>
 </div>
 
-<div class="modal fade" id="replyModal" tabindex="-1">
+<!-- Single Reusable Feedback & Reply Modal -->
+<div class="modal fade" id="replyModal" tabindex="-1" aria-labelledby="replyModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content modal-content-custom">
             
+            <!-- Modal Header -->
             <div class="modal-header modal-header-custom">
-                <h5 class="modal-title fw-bold text-dark" style="font-size: 16px; letter-spacing: -0.3px;">Review Response</h5>
+                <h5 class="modal-title fw-bold text-dark" id="replyModalLabel" style="font-size: 16px; letter-spacing: -0.3px;">
+                    <i class="bi bi-chat-square-quote-fill text-warning me-2"></i>Review Details & Response
+                </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
 
+            <!-- Modal Body -->
             <div class="modal-body modal-body-custom">
+                <!-- Hidden ID Field -->
                 <input type="hidden" id="review_id">
                 
-                <label class="form-label small fw-bold text-muted mb-2" style="text-transform: uppercase; letter-spacing: 0.5px;">Your Message</label>
-                <textarea id="reply_text" class="form-control shadow-none" rows="5" 
+                <!-- Dynamic Customer Rating & Review Details -->
+                <div class="p-3 mb-3" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <div id="modal_stars" class="text-warning fs-6"></div>
+                        <span id="modal_reply_badge" class="badge bg-success" style="display: none;">Replied</span>
+                    </div>
+                    <div id="modal_review_title" class="fw-bold text-dark small mb-1"></div>
+                    <p id="modal_review_text" class="text-secondary small mb-0" style="line-height: 1.5; white-space: pre-line;"></p>
+                </div>
+
+                <!-- Admin Reply Textarea -->
+                <label class="form-label small fw-bold text-muted mb-2" style="text-transform: uppercase; letter-spacing: 0.5px;">Your Reply</label>
+                <textarea id="reply_text" class="form-control shadow-none" rows="4" 
                     placeholder="Type your reply to the customer here..." 
-                    style="background-color: #f8fafc; color: #1e293b; border: 1px solid #e2e8f0; border-radius: 12px; font-size: 14px; padding: 12px;"></textarea>
+                    style="background-color: #ffffff; color: #1e293b; border: 1px solid #cbd5e1; border-radius: 12px; font-size: 14px; padding: 12px;"></textarea>
                 
+                <!-- Status/Alert Message -->
                 <div id="modal_message" class="mt-3" style="display: none;"></div>
             </div>
 
+            <!-- Modal Footer -->
             <div class="modal-footer modal-footer-custom">
                 <button type="button" class="btn border-0 text-muted fw-semibold" data-bs-dismiss="modal" style="font-size: 14px;">Cancel</button>
                 <button type="button" class="btn btn-primary px-4 py-2 fw-semibold" id="submit_reply" style="border-radius: 10px; font-size: 14px;">
                     Save Reply
                 </button>
             </div>
+            
         </div>
     </div>
 </div>
@@ -362,19 +386,35 @@ document.addEventListener('DOMContentLoaded', function () {
     const modal = new bootstrap.Modal(modalElement);
 
     // OPEN MODAL RULE
-    document.addEventListener('click', function (e) {
-        const button = e.target.closest('.reply-button');
-        if (!button) return;
+    document.querySelectorAll('.reply-button').forEach(button => {
+    button.addEventListener('click', function() {
+        // Extract data attributes
+        const reviewId = this.dataset.id;
+        const rating = parseInt(this.dataset.rating) || 5;
+        const title = this.dataset.title || '';
+        const text = this.dataset.text || '';
+        const reply = this.dataset.reply || '';
 
-        const id = button.dataset.id;
-        const reply = button.dataset.reply || '';
-
-        document.getElementById('review_id').value = id;
+        // Populate modal elements
+        document.getElementById('review_id').value = reviewId;
+        document.getElementById('modal_review_title').innerText = title;
+        document.getElementById('modal_review_text').innerText = text;
         document.getElementById('reply_text').value = reply;
-        document.getElementById('modal_message').style.display = 'none';
 
-        modal.show();
+        // Render Star Rating Stars (★/☆)
+        const starsContainer = document.getElementById('modal_stars');
+        starsContainer.innerHTML = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+
+        // Show/Hide Replied Badge
+        const badge = document.getElementById('modal_reply_badge');
+        badge.style.display = reply.trim() !== '' ? 'inline-block' : 'none';
+
+        // Clear previous alert messages
+        const msgDiv = document.getElementById('modal_message');
+        msgDiv.style.display = 'none';
+        msgDiv.innerHTML = '';
     });
+});
 
     // SAVE REPLY ASYNC ROUTINE
     document.getElementById('submit_reply').addEventListener('click', function () {

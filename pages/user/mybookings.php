@@ -26,15 +26,23 @@ $active_rentals = mysqli_fetch_assoc($active_query)['total'] ?? 0;
 $spent_query = mysqli_query($conn, "SELECT SUM(total_price) as total FROM bookings WHERE user_id = '$user_id' AND status = 'Completed'");
 $total_spent = mysqli_fetch_assoc($spent_query)['total'] ?? 0;
 
-// --- FILTER AND SEARCH LOGIC ---
+// --- UNIFIED SEARCH, FILTER, CAR & REVIEW FETCH LOGIC ---
 $bookings = [];
 $search = mysqli_real_escape_string($conn, $_GET['search'] ?? '');
 $filter_status = mysqli_real_escape_string($conn, $_GET['status'] ?? 'All');
 
-// CHANGED: Removed c.price_per_day from the field list since it is not used here
-$query_sql = "SELECT b.*, c.brand, c.model, c.plate_number 
+$query_sql = "SELECT 
+                b.*, 
+                c.brand, 
+                c.model, 
+                c.plate_number,
+                r.rating, 
+                r.review_title, 
+                r.review_text, 
+                r.admin_reply
               FROM bookings b 
               JOIN cars c ON b.car_id = c.id 
+              LEFT JOIN reviews r ON b.id = r.booking_id AND r.user_id = '$user_id'
               WHERE b.user_id = '$user_id'";
 
 if (!empty($search)) {
@@ -46,6 +54,7 @@ if ($filter_status !== 'All') {
 }
 
 $query_sql .= " ORDER BY b.id DESC";
+
 $result = mysqli_query($conn, $query_sql);
 
 if ($result) {
@@ -287,14 +296,17 @@ if ($result) {
                                                 </td>
                                                 <td class="py-3 align-middle text-center">
                                                     <?php if ($b['status'] === 'Completed'): ?>
-                                                        <button class="btn btn-sm btn-outline-primary rounded-3 px-3 edit-review-btn" 
-                                                                data-bs-toggle="modal" 
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-outline-primary rounded-3 px-3 edit-review-btn"
+                                                                data-bs-toggle="modal"
                                                                 data-bs-target="#reviewModal"
                                                                 data-booking-id="<?= $b['id'] ?>"
-                                                                data-rating="<?= htmlspecialchars($b['rating'] ?? '5') ?>"
-                                                                data-title="<?= htmlspecialchars($b['review_title'] ?? '') ?>"
-                                                                data-text="<?= htmlspecialchars($b['review_text'] ?? '') ?>">
-                                                            <i class="bi bi-star-fill me-1"></i> <?= isset($b['rating']) ? 'Edit' : 'Rate' ?>
+                                                                data-rating="<?= htmlspecialchars($b['rating'] ?? '5', ENT_QUOTES) ?>"
+                                                                data-title="<?= htmlspecialchars($b['review_title'] ?? '', ENT_QUOTES) ?>"
+                                                                data-text="<?= htmlspecialchars($b['review_text'] ?? '', ENT_QUOTES) ?>"
+                                                                data-admin-reply="<?= htmlspecialchars($b['admin_reply'] ?? '', ENT_QUOTES) ?>">
+                                                            <i class="bi bi-star-fill me-1"></i>
+                                                            <?= !empty($b['rating']) ? 'Edit Review' : 'Rate Experience' ?>
                                                         </button>
                                                     <?php else: ?>
                                                         <span class="text-muted small">-</span>
@@ -340,14 +352,15 @@ if ($result) {
                                 </div>
                                 <?php if ($b['status'] === 'Completed'): ?>
                                     <div class="mt-3 pt-2 border-top text-end">
-                                        <button class="btn btn-sm btn-primary w-100 rounded-3 edit-review-btn" 
+                                        <button class="btn btn-sm btn-outline-primary rounded-3 px-3 edit-review-btn" 
                                                 data-bs-toggle="modal" 
                                                 data-bs-target="#reviewModal"
                                                 data-booking-id="<?= $b['id'] ?>"
                                                 data-rating="<?= htmlspecialchars($b['rating'] ?? '5') ?>"
                                                 data-title="<?= htmlspecialchars($b['review_title'] ?? '') ?>"
-                                                data-text="<?= htmlspecialchars($b['review_text'] ?? '') ?>">
-                                            <i class="bi bi-star-fill me-1"></i> <?= isset($b['rating']) ? 'Modify Review Rating' : 'Leave a Trip Review' ?>
+                                                data-text="<?= htmlspecialchars($b['review_text'] ?? '') ?>"
+                                                data-admin-reply="<?= htmlspecialchars($b['admin_reply'] ?? '') ?>">
+                                            <i class="bi bi-star-fill me-1"></i> <?= !empty($b['rating']) ? 'Edit' : 'Rate' ?>
                                         </button>
                                     </div>
                                 <?php endif; ?>
@@ -368,14 +381,31 @@ if ($result) {
 <div class="modal fade" id="reviewModal" tabindex="-1" aria-labelledby="reviewModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content rounded-4 border-0 shadow">
+            
             <div class="modal-header border-0 bg-light rounded-top-4 py-3">
-                <h5 class="modal-title fw-bold" id="reviewModalLabel"><i class="bi bi-star text-warning me-2"></i>Trip Experience Review</h5>
+                <h5 class="modal-title fw-bold" id="reviewModalLabel">
+                    <i class="bi bi-star text-warning me-2"></i>Trip Experience Review
+                </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
+
             <form id="reviewForm">
                 <div class="modal-body p-4">
+                    <!-- NOTIFICATION ALERT BOX -->
+                    <div id="modal_alert" class="alert alert-dismissible fade show d-none mb-3" role="alert"></div>
                     <input type="hidden" id="modal_booking_id" name="booking_id">
                     
+                    <!-- Notification Container inside modal -->
+                    <div id="modal_alert" class="alert alert-dismissible fade show d-none" role="alert"></div>
+
+                    <!-- ADMIN REPLY CONTAINER -->
+                    <div id="admin_reply_wrapper" class="mb-4 p-3 rounded-3 border" style="display: none; background-color: #f0f9ff; border-color: #bae6fd !important;">
+                        <div class="d-flex align-items-center mb-1 text-primary fw-bold small">
+                            <i class="bi bi-reply-fill me-1 fs-6"></i> Response from Admin/Host
+                        </div>
+                        <div id="display_admin_reply" class="text-dark small" style="white-space: pre-line; line-height: 1.5;"></div>
+                    </div>
+
                     <div class="mb-3">
                         <label for="modal_rating" class="form-label small fw-bold text-secondary">Overall Experience Rating</label>
                         <select class="form-select" id="modal_rating" name="rating" required>
@@ -397,38 +427,71 @@ if ($result) {
                         <textarea class="form-control" id="modal_review_text" name="review_text" rows="4" placeholder="Share specific details regarding vehicle hand-off, cleanliness, driving performance..." required></textarea>
                     </div>
                 </div>
+
                 <div class="modal-footer border-0 bg-light rounded-bottom-4 py-2">
                     <button type="button" class="btn btn-white border rounded-3 text-secondary small px-3 fw-semibold" data-bs-dismiss="modal">Discard</button>
-                    <button type="submit" class="btn btn-primary rounded-3 px-4 fw-semibold small">Submit Review</button>
+                    <button type="submit" id="submit_review_btn" class="btn btn-primary rounded-3 px-4 fw-semibold small">Submit Review</button>
                 </div>
             </form>
+
         </div>
     </div>
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    // OPEN MODAL HANDLER
+
+    let activeBtn = null;
+
+    // 1. Reset Alert Box when Modal opens
     document.addEventListener('click', function (e) {
         const btn = e.target.closest('.edit-review-btn');
         if (!btn) return;
 
-        const bookingId = btn.dataset.bookingId;
-        const rating = btn.dataset.rating || '5';
-        const title = btn.dataset.title || '';
-        const text = btn.dataset.text || '';
+        activeBtn = btn;
 
-        document.getElementById('modal_booking_id').value = bookingId;
-        document.getElementById('modal_rating').value = rating;
-        document.getElementById('modal_review_title').value = title;
-        document.getElementById('modal_review_text').value = text;
+        // Hide alert message when opening modal for a new selection
+        const alertBox = document.getElementById('modal_alert');
+        if (alertBox) {
+            alertBox.classList.add('d-none');
+            alertBox.innerText = '';
+        }
+
+        // Fill modal values from dataset
+        document.getElementById('modal_booking_id').value   = btn.dataset.bookingId || '';
+        document.getElementById('modal_rating').value       = btn.dataset.rating || '5';
+        document.getElementById('modal_review_title').value = btn.dataset.title || '';
+        document.getElementById('modal_review_text').value  = btn.dataset.text || '';
+
+        // Handle Admin Reply visibility
+        const adminReply   = btn.dataset.adminReply || '';
+        const replyWrapper = document.getElementById('admin_reply_wrapper');
+        const replyDisplay = document.getElementById('display_admin_reply');
+
+        if (replyWrapper && replyDisplay) {
+            if (adminReply.trim() !== '') {
+                replyDisplay.textContent = adminReply;
+                replyWrapper.style.display = 'block';
+            } else {
+                replyDisplay.textContent = '';
+                replyWrapper.style.display = 'none';
+            }
+        }
     });
 
-    // SUBMIT REVIEW FORM
+    // 2. Form Submission with Dynamic Alert Notification
     const form = document.getElementById('reviewForm');
     if (form) {
         form.addEventListener('submit', function (e) {
             e.preventDefault();
+
+            const submitBtn = document.getElementById('submit_review_btn');
+            const alertBox  = document.getElementById('modal_alert');
+
+            // Disable button & set spinner
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+
             const formData = new FormData(this);
 
             fetch('process/submit_review.php', {
@@ -438,13 +501,43 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    location.reload();
+                    // SHOW SUCCESS NOTIFICATION
+                    alertBox.className = 'alert alert-success alert-dismissible fade show mb-3';
+                    alertBox.innerText = 'Review saved successfully! Refreshing...';
+                    alertBox.classList.remove('d-none');
+
+                    // Update action button state dynamically
+                    if (activeBtn) {
+                        activeBtn.dataset.rating = formData.get('rating');
+                        activeBtn.dataset.title  = formData.get('review_title');
+                        activeBtn.dataset.text   = formData.get('review_text');
+                        activeBtn.innerHTML      = '<i class="bi bi-star-fill me-1"></i> Edit Review';
+                    }
+
+                    // Refresh page after a brief pause so user sees the notification
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1200);
+
                 } else {
-                    alert(data.message || 'Error saving review');
+                    // SHOW ERROR NOTIFICATION
+                    alertBox.className = 'alert alert-danger alert-dismissible fade show mb-3';
+                    alertBox.innerText = data.message || 'Failed to save review.';
+                    alertBox.classList.remove('d-none');
+
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = 'Submit Review';
                 }
             })
             .catch(err => {
-                console.error('Submit Error:', err);
+                console.error('AJAX Error:', err);
+                // SHOW CONNECTION ERROR NOTIFICATION
+                alertBox.className = 'alert alert-danger alert-dismissible fade show mb-3';
+                alertBox.innerText = 'Server error or invalid JSON response.';
+                alertBox.classList.remove('d-none');
+
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'Submit Review';
             });
         });
     }

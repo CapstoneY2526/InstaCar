@@ -28,14 +28,15 @@ function calculatePriceByHours($hours, $p10, $p12, $p24, $ext1_6, $ext7_10, $ext
         $basePrice = $days * $p24;
         
         if ($extraHours > 0) {
+            // Apply flat fixed rates instead of multiplying per hour
             if ($extraHours <= 6) {
-                $basePrice += ($extraHours * $ext1_6);
+                $basePrice += floatval($ext1_6);     // e.g. Flat +₱500
             } elseif ($extraHours <= 10) {
-                $basePrice += ($extraHours * $ext7_10);
+                $basePrice += floatval($ext7_10);    // e.g. Flat +₱800
             } elseif ($extraHours <= 12) {
-                $basePrice += ($extraHours * $ext11_12);
+                $basePrice += floatval($ext11_12);   // e.g. Flat +₱1,000
             } else {
-                $basePrice += ($extraHours * $ext13_24);
+                $basePrice += floatval($ext13_24);  // e.g. Flat +₱1,500
             }
         }
         return round($basePrice, 2);

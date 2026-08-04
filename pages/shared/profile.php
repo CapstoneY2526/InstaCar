@@ -15,6 +15,11 @@ $user_id = (int)$_SESSION['user_id'];
 $user = mysqli_fetch_assoc(mysqli_query($conn, "SELECT name, email, role FROM users WHERE id = $user_id LIMIT 1"));
 
 $pageTitle = 'Account Settings';
+
+// QR Code File Path Check
+$qr_file_path = __DIR__ . '/../../public/assets/images/qr_code_payment.png';
+$qr_image_exists = file_exists($qr_file_path);
+$qr_image_url = "../../public/assets/images/qr_code_payment.png" . ($qr_image_exists ? '?v=' . time() : '');
 ?>
 
 <?php require_once __DIR__ . '/../components/head.php'; ?>
@@ -30,15 +35,33 @@ $pageTitle = 'Account Settings';
 
             <div class="p-4">
                 <div class="mb-4">
-                    <h3 class="fw-bold mb-0">My Profile</h3>
-                    <p class="text-muted">Manage your account information and security.</p>
+                    <h3 class="fw-bold mb-0">My Profile & Settings</h3>
+                    <p class="text-muted">Manage your account information, security, and payment settings.</p>
                 </div>
 
-                <div class="row">
+                <!-- SESSION FLASH MESSAGES -->
+                <?php if (isset($_SESSION['success'])): ?>
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <i class="bi bi-check-circle me-1"></i> <?= htmlspecialchars($_SESSION['success']); ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    <?php unset($_SESSION['success']); ?>
+                <?php endif; ?>
+
+                <?php if (isset($_SESSION['error'])): ?>
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-triangle me-1"></i> <?= htmlspecialchars($_SESSION['error']); ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    <?php unset($_SESSION['error']); ?>
+                <?php endif; ?>
+
+                <div class="row g-4">
+                    <!-- PERSONAL INFORMATION -->
                     <div class="col-lg-6">
-                        <div class="card shadow-sm border-0 mb-4">
+                        <div class="card shadow-sm border-0 h-100">
                             <div class="card-header bg-white py-3 border-0">
-                                <h5 class="fw-bold mb-0">Personal Information</h5>
+                                <h5 class="fw-bold mb-0"><i class="bi bi-person-circle me-2 text-primary"></i>Personal Information</h5>
                             </div>
                             <div class="card-body p-4 pt-0">
                                 <form action="process/profile_actions.php" method="POST">
@@ -61,10 +84,11 @@ $pageTitle = 'Account Settings';
                         </div>
                     </div>
 
+                    <!-- SECURITY -->
                     <div class="col-lg-6">
-                        <div class="card shadow-sm border-0">
+                        <div class="card shadow-sm border-0 h-100">
                             <div class="card-header bg-white py-3 border-0">
-                                <h5 class="fw-bold mb-0">Security</h5>
+                                <h5 class="fw-bold mb-0"><i class="bi bi-shield-lock me-2 text-dark"></i>Security</h5>
                             </div>
                             <div class="card-body p-4 pt-0">
                                 <form action="process/profile_actions.php" method="POST">
@@ -85,6 +109,55 @@ $pageTitle = 'Account Settings';
                             </div>
                         </div>
                     </div>
+
+                    <!-- PAYMENT QR CODE MANAGEMENT (ADMIN / OPERATOR ONLY) -->
+                    <?php if (in_array($user['role'], ['admin', 'operator'])): ?>
+                    <div class="col-12">
+                        <div class="card shadow-sm border-0">
+                            <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+                                <h5 class="fw-bold mb-0"><i class="bi bi-qr-code-scan me-2 text-success"></i>Payment QR Code Settings</h5>
+                                <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1">Active Payment QR</span>
+                            </div>
+                            <div class="card-body p-4 pt-0">
+                                <div class="row align-items-center g-4">
+                                    <!-- QR Image Preview Container -->
+                                    <div class="col-md-4 text-center border-end">
+                                        <label class="form-label small fw-bold d-block text-muted mb-2">Current Displayed QR Code</label>
+                                        <div class="p-3 bg-light rounded border d-inline-block shadow-sm">
+                                            <img src="<?= $qr_image_url ?>" 
+                                                 alt="Payment QR Code" 
+                                                 class="img-fluid rounded" 
+                                                 style="max-height: 220px; object-fit: contain;"
+                                                 onerror="this.onerror=null; this.src='https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=SamplePaymentQR';">
+                                        </div>
+                                    </div>
+
+                                    <!-- Upload Form -->
+                                    <div class="col-md-8">
+                                        <form action="process/profile_actions.php" method="POST" enctype="multipart/form-data">
+                                            <div class="mb-3">
+                                                <label class="form-label small fw-bold">Upload New Payment QR Code</label>
+                                                <input type="file" name="qr_code_image" class="form-control" accept="image/png, image/jpeg, image/webp" required>
+                                                <div class="form-text">
+                                                    Upload your GCash, Maya, or Bank Transfer QR code image (PNG, JPG, WEBP). This image will immediately update in customer reservation modals.
+                                                </div>
+                                            </div>
+
+                                            <div class="alert alert-info py-2 px-3 small mb-3 border-0">
+                                                <i class="bi bi-info-circle me-1"></i>
+                                                <strong>Tip:</strong> Ensure the QR code image is clear and easily scannable by banking apps.
+                                            </div>
+
+                                            <button type="submit" name="upload_qr_code" class="btn btn-success fw-bold px-4">
+                                                <i class="bi bi-cloud-arrow-up me-1"></i> Update Payment QR Code
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
 

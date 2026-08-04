@@ -30,12 +30,40 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
             color: var(--brand-white);
         }
 
+        /* Back to Home floating button */
+        .btn-back-home {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            color: var(--brand-white);
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 8px 18px;
+            border-radius: 30px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            z-index: 100;
+        }
+
+        .btn-back-home:hover {
+            background: var(--brand-yellow);
+            color: #000;
+            border-color: var(--brand-yellow);
+            transform: translateX(-3px);
+        }
+
         .login-container {
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             padding: 20px;
+            position: relative;
         }
 
         .login-box {
@@ -64,7 +92,7 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
         .form-control {
             padding: 12px;
             border-radius: 10px;
-            border: 1px solid var(--brand-yellow); /* CHANGE THIS */
+            border: 1px solid var(--brand-yellow);
             background-color: #2a2a2a;
             color: white;
         }
@@ -77,8 +105,8 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
         }
 
         .form-control::placeholder {
-            color: #a0a0a0; /* A much lighter, crisper gray */
-            opacity: 1;    /* Ensures Firefox doesn't dim it further */
+            color: #a0a0a0;
+            opacity: 1;
         }
 
         .form-label {
@@ -125,18 +153,17 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
         input:-webkit-autofill:focus, 
         input:-webkit-autofill:active {
             -webkit-text-fill-color: var(--brand-white) !important;
-            -webkit-box-shadow: 0 0 0px 1000px #2a2a2a inset !important; /* Matches your #2a2a2a background */
+            -webkit-box-shadow: 0 0 0px 1000px #2a2a2a inset !important;
             transition: background-color 5000s ease-in-out 0s;
             border: 1px solid var(--brand-yellow) !important;
         }
 
-        /* Password Wrapper Styles */
         .password-container {
             position: relative;
         }
 
         .password-container .form-control {
-            padding-right: 45px; /* Leave space for the toggle icon */
+            padding-right: 45px;
         }
 
         .toggle-password {
@@ -153,13 +180,11 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
         .toggle-password:hover {
             color: var(--brand-yellow);
         }
-        
     </style>
 </head>
 <body>
 
     <div class="login-container">
-        
         <div class="login-box text-center">
             <div class="brand-logo">
                 <i class="bi bi-car-front-fill"></i>
@@ -193,11 +218,11 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
                 </button>
                 
                 <div class="text-center mt-3">
-                    <p class="small text-muted">Don't have an account? <a href="register.php" class="fw-bold">Sign up</a></p>
+                    <p class="small text-muted mb-1">Don't have an account? <a href="register.php" class="fw-bold">Sign up</a></p>
+                    <p class="small"><a href="index.php" class="text-secondary"><i class="bi bi-house-door me-1"></i>Back to Main Site</a></p>
                 </div>
             </form>
         </div>
-
     </div>
 
     <script>
@@ -205,11 +230,9 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
         const passwordInput = document.querySelector('#password');
 
         togglePassword.addEventListener('click', function () {
-            // Toggle the type attribute
             const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
             passwordInput.setAttribute('type', type);
             
-            // Toggle the icon eye / eye-slash
             this.classList.toggle('bi-eye');
             this.classList.toggle('bi-eye-slash');
         });

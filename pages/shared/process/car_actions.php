@@ -34,22 +34,22 @@ if (isset($_POST['add_car'])) {
     }
 
     // 10 Hours Tier
-    $price_10 = floatval($_POST['price_10_hours']);
-    $op_rate_10 = floatval($_POST['operator_10_hours']); 
+    $price_10 = floatval($_POST['price_10_hours'] ?? 0);
+    $op_rate_10 = floatval($_POST['operator_10_hours'] ?? 0); 
 
     // 12 Hours Tier
-    $price_12 = floatval($_POST['price_12_hours']);
-    $op_rate_12 = floatval($_POST['operator_12_hours']); 
+    $price_12 = floatval($_POST['price_12_hours'] ?? 0);
+    $op_rate_12 = floatval($_POST['operator_12_hours'] ?? 0); 
 
-    // 24 Hours Tier (Formerly Daily)
-    $price_24 = floatval($_POST['price_24_hours']);
-    $op_rate_24 = floatval($_POST['operator_24_hours']); 
+    // 24 Hours Tier
+    $price_24 = floatval($_POST['price_24_hours'] ?? 0);
+    $op_rate_24 = floatval($_POST['operator_24_hours'] ?? 0); 
 
     // Extension Rates Tiers
-    $ext_1_6 = floatval($_POST['ext_price_1_6']);
-    $ext_7_10 = floatval($_POST['ext_price_7_10']);
-    $ext_11_12 = floatval($_POST['ext_price_11_12']);
-    $ext_13_24 = floatval($_POST['ext_price_13_24']);
+    $ext_1_6 = floatval($_POST['ext_price_1_6'] ?? 0);
+    $ext_7_10 = floatval($_POST['ext_price_7_10'] ?? 0);
+    $ext_11_12 = floatval($_POST['ext_price_11_12'] ?? 0);
+    $ext_13_24 = floatval($_POST['ext_price_13_24'] ?? 0);
 
     // Multiple Upload Stash handling
     $uploaded_images = [];
@@ -68,7 +68,6 @@ if (isset($_POST['add_car'])) {
         }
     }
     
-    // Save images as comma-separated string paths
     $image_string = implode(',', $uploaded_images);
 
     $sql = "INSERT INTO cars (
@@ -89,8 +88,7 @@ if (isset($_POST['add_car'])) {
     header("Location: ../cars.php"); exit();
 }
 
-// UPDATE CAR (Matches form intercept button OR hidden vehicleEditForm input contexts)
-// UPDATE CAR (Matches form intercept button OR hidden vehicleEditForm input contexts)
+// UPDATE CAR
 if (isset($_POST['update_car']) || isset($_POST['id'])) {
     $id = (int)$_POST['id'];
     $brand = mysqli_real_escape_string($conn, $_POST['brand']);
@@ -102,9 +100,6 @@ if (isset($_POST['update_car']) || isset($_POST['id'])) {
     $trans = mysqli_real_escape_string($conn, $_POST['transmission']);
     $color = mysqli_real_escape_string($conn, $_POST['color']);
     $cap = (int)$_POST['capacity'];
-    
-    // Ensure target directory is available within this scope if needed
-    $target_dir = "../../../public/assets/images/cars/";
 
     // 2. DUPLICATE PLATE NUMBER CHECK ON UPDATE (Excluding itself)
     $check_plate_query = "SELECT id FROM cars WHERE plate_number = '$plate' AND id != $id LIMIT 1";
@@ -115,27 +110,23 @@ if (isset($_POST['update_car']) || isset($_POST['id'])) {
         exit();
     }
 
-    // 10 Hours Tier
-    $price_10 = floatval($_POST['price_10_hours']);
-    $op_rate_10 = floatval($_POST['operator_10_hours']); 
+    // Tier prices
+    $price_10 = floatval($_POST['price_10_hours'] ?? 0);
+    $op_rate_10 = floatval($_POST['operator_10_hours'] ?? 0); 
 
-    // 12 Hours Tier
-    $price_12 = floatval($_POST['price_12_hours']);
-    $op_rate_12 = floatval($_POST['operator_12_hours']); 
+    $price_12 = floatval($_POST['price_12_hours'] ?? 0);
+    $op_rate_12 = floatval($_POST['operator_12_hours'] ?? 0); 
 
-    // 24 Hours Tier
-    $price_24 = floatval($_POST['price_24_hours']);
-    $op_rate_24 = floatval($_POST['operator_24_hours']); 
+    $price_24 = floatval($_POST['price_24_hours'] ?? 0);
+    $op_rate_24 = floatval($_POST['operator_24_hours'] ?? 0); 
 
-    // Extension Rates Tiers
-    $ext_1_6 = floatval($_POST['ext_price_1_6']);
-    $ext_7_10 = floatval($_POST['ext_price_7_10']);
-    $ext_11_12 = floatval($_POST['ext_price_11_12']);
-    $ext_13_24 = floatval($_POST['ext_price_13_24']);
+    $ext_1_6 = floatval($_POST['ext_price_1_6'] ?? 0);
+    $ext_7_10 = floatval($_POST['ext_price_7_10'] ?? 0);
+    $ext_11_12 = floatval($_POST['ext_price_11_12'] ?? 0);
+    $ext_13_24 = floatval($_POST['ext_price_13_24'] ?? 0);
 
     $auth = ($role === 'admin') ? "" : " AND user_id = $user_id";
 
-    // Retrieve existing collection paths from database first
     $car_query = mysqli_query($conn, "SELECT image_path FROM cars WHERE id = $id $auth");
     $car_data = mysqli_fetch_assoc($car_query);
     if (!$car_data) {
@@ -144,18 +135,14 @@ if (isset($_POST['update_car']) || isset($_POST['id'])) {
         exit();
     }
     
-    // Parse existing images array
     $current_images = !empty($car_data['image_path']) ? array_map('trim', explode(',', $car_data['image_path'])) : [];
 
-    // Process structural deletions captured from JavaScript stashes
     if (isset($_POST['delete_existing_images']) && is_array($_POST['delete_existing_images'])) {
         foreach ($_POST['delete_existing_images'] as $del_img) {
             $del_img = trim($del_img);
             if (($key = array_search($del_img, $current_images)) !== false) {
-                // Remove from the tracking collection array
                 unset($current_images[$key]);
                 
-                // Physically delete file from server directory storage
                 $physical_file = $target_dir . $del_img;
                 if (!empty($del_img) && $del_img !== 'default.png' && file_exists($physical_file)) {
                     @unlink($physical_file);
@@ -164,7 +151,6 @@ if (isset($_POST['update_car']) || isset($_POST['id'])) {
         }
     }
 
-    // Process new files appended via dropzone/file input element
     if (!empty($_FILES['car_images']['name'][0])) {
         foreach ($_FILES['car_images']['name'] as $key => $name) {
             $tmp_name = $_FILES['car_images']['tmp_name'][$key];
@@ -180,7 +166,6 @@ if (isset($_POST['update_car']) || isset($_POST['id'])) {
         }
     }
 
-    // Re-index collection array keys cleanly and save back as a comma-separated string
     $current_images = array_values($current_images);
     $final_image_string = implode(',', $current_images);
     
@@ -208,7 +193,6 @@ if (isset($_GET['delete'])) {
     $id = (int)$_GET['delete'];
     $auth = ($role === 'admin') ? "" : " AND user_id = $user_id";
     
-    // Optional: Fetch file names to unlink files when a vehicle is removed
     $car_query = mysqli_query($conn, "SELECT image_path FROM cars WHERE id = $id $auth");
     if ($car_data = mysqli_fetch_assoc($car_query)) {
         $images = explode(',', $car_data['image_path']);
@@ -233,19 +217,18 @@ if (isset($_POST['action']) && $_POST['action'] === 'set_main_image') {
     $chosen_img = mysqli_real_escape_string($conn, trim($_POST['image_name']));
     $auth = ($_SESSION['role'] === 'admin') ? "" : " AND user_id = " . (int)$_SESSION['user_id'];
 
-    // 1. Fetch current image string
     $query = mysqli_query($conn, "SELECT image_path FROM cars WHERE id = $car_id $auth");
     if ($car = mysqli_fetch_assoc($query)) {
         $images = array_map('trim', explode(',', $car['image_path']));
         
-        // 2. Move chosen image to the first slot if it exists in the collection
         if (($key = array_search($chosen_img, $images)) !== false) {
-            unset($images[$key]); // Remove it from its old position
-            array_unshift($images, $chosen_img); // Push it to the front of the array
+            unset($images[$key]); 
+            array_unshift($images, $chosen_img);
             
             $new_image_path = implode(',', $images);
+            $update_sql = "UPDATE cars SET image_path = '$new_image_path' WHERE id = $car_id $auth";
             
-            if ($update) {
+            if (mysqli_query($conn, $update_sql)) {
                 echo json_encode(['success' => true, 'new_main' => $chosen_img]);
                 exit();
             }

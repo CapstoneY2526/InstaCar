@@ -45,6 +45,11 @@ $displayEmail = !empty($booking['registered_email']) ? $booking['registered_emai
 
 $pageTitle = "Booking Details #" . $booking['id'];
 require_once __DIR__ . '/../components/head.php';
+
+$images = explode(',', $booking['image_path']);
+$first_image = trim($images[0]);
+  $images = explode(',', $booking['image_path']);
+  $first_image = trim($images[0]);
 ?>
 
 <div class="container-fluid">
@@ -76,8 +81,10 @@ require_once __DIR__ . '/../components/head.php';
                         <div class="card border-0 shadow-sm rounded-4 mb-4">
                             <div class="card-body p-4">
                                 <div class="d-flex align-items-center mb-4">
-                                    <img src="../../public/assets/images/cars/<?= $booking['image_path'] ?>" 
-                                         class="rounded-3 me-3" style="width: 120px; height: 80px; object-fit: cover;">
+                                    <img src="/car-rental/public/assets/images/cars/<?= htmlspecialchars($first_image) ?>" 
+                                        class="rounded-3 me-3" 
+                                        style="width: 120px; height: 80px; object-fit: cover;" 
+                                        alt="Car Image">
                                     <div>
                                         <h4 class="fw-bold mb-0"><?= $booking['brand'] ?> <?= $booking['model'] ?></h4>
                                         <p class="text-muted mb-0">Plate: <span class="badge bg-light text-dark border"><?= $booking['plate_number'] ?></span></p>

@@ -1230,10 +1230,11 @@ function calculateTieredTotal() {
         basePrice = days * p24;
         
         if (extraHours > 0) {
-            if (extraHours <= 6) basePrice += (extraHours * ext1_6);
-            else if (extraHours <= 10) basePrice += (extraHours * ext7_10);
-            else if (extraHours <= 12) basePrice += (extraHours * ext11_12);
-            else basePrice += (extraHours * ext13_24);
+            // Flat fixed rate addition
+            if (extraHours <= 6) basePrice += ext1_6;
+            else if (extraHours <= 10) basePrice += ext7_10;
+            else if (extraHours <= 12) basePrice += ext11_12;
+            else basePrice += ext13_24;
         }
     }
     
