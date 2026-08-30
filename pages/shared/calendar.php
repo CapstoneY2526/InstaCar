@@ -16,18 +16,41 @@ $pageTitle = 'Booking Calendar';
 require_once __DIR__ . '/../components/head.php'; 
 ?>
 
+<!-- Google Font: Inter -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 
 <style>
-    body { background-color: #f8fafc; font-family: 'Poppins', sans-serif; }
-    .main-content { min-height: 100vh; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    /* ========================================================
+       BASE LIGHT/DARK LAYOUT & COMPONENT OVERRIDES
+       ======================================================== */
+    body, 
+    button, 
+    input, 
+    select, 
+    textarea, 
+    .form-control, 
+    .btn, 
+    .table,
+    .fc { 
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; 
+    }
+    
+    .main-content { 
+        background-color: var(--brand-bg, #f8fafc);
+        min-height: 100vh; 
+        transition: background-color 0.25s ease, color 0.25s ease;
+    }
     
     .calendar-card {
         background: white;
         border-radius: 1.25rem;
-        border: none;
+        border: 1px solid var(--brand-border, #e2e8f0);
         box-shadow: 0 4px 20px rgba(0,0,0,0.03);
         padding: 1rem;
+        transition: background-color 0.25s ease, border-color 0.25s ease;
     }
 
     :root {
@@ -98,6 +121,260 @@ require_once __DIR__ . '/../components/head.php';
         border-radius: 6px;
     }
 
+    /* Brand Action Button Styling */
+    .btn-brand {
+        background-color: var(--brand-yellow, #ffcc00) !important;
+        color: #000000 !important;
+        border: none !important;
+        font-weight: 600 !important;
+        padding: 0.6rem 1.25rem !important;
+        border-radius: 10px !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .btn-brand i, 
+    .btn-brand span {
+        color: #000000 !important;
+    }
+
+    .btn-brand:hover {
+        background-color: #e6b800 !important;
+        color: #000000 !important;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(255, 204, 0, 0.25) !important;
+    }
+
+    /* ========================================================
+       DARK MODE COMPLETE OVERRIDES & FULLCALENDAR CONTRAST FIXES
+       ======================================================== */
+    body.dark-mode,
+    body.dark-mode .main-content {
+        background-color: #0a0a0a !important;
+        color: #f1f5f9 !important;
+    }
+
+    /* Header & Footer Components */
+    body.dark-mode header,
+    body.dark-mode navbar,
+    body.dark-mode .navbar,
+    body.dark-mode footer,
+    body.dark-mode .footer {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode footer p,
+    body.dark-mode header span,
+    body.dark-mode header p {
+        color: #a1a1aa !important;
+    }
+
+    /* Calendar Card Container */
+    body.dark-mode .calendar-card {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+    }
+
+    body.dark-mode .fc .fc-toolbar-title {
+        color: #ffffff !important;
+    }
+
+    /* Grid & Borders */
+    body.dark-mode .fc-theme-standard td,
+    body.dark-mode .fc-theme-standard th,
+    body.dark-mode .fc-theme-standard .fc-scrollgrid {
+        border-color: #27272a !important;
+    }
+
+    /* Header Days Bar (Sun, Mon, Tue...) Dark Overrides */
+    body.dark-mode .fc .fc-col-header,
+    body.dark-mode .fc .fc-col-header-cell {
+        background-color: #1f1f1f !important;
+    }
+
+    body.dark-mode .fc .fc-col-header-cell-cushion {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+    }
+
+    /* Day Numbers */
+    body.dark-mode .fc .fc-daygrid-day-number {
+        color: #f1f5f9 !important;
+    }
+
+    /* Active Today Highlight */
+    body.dark-mode .fc-day-today {
+        background: #1f1f1f !important;
+    }
+
+    body.dark-mode .fc-day-today .fc-daygrid-day-number {
+        background: #ffcc00 !important;
+        color: #000000 !important;
+        font-weight: bold !important;
+    }
+
+    /* Toolbar Buttons */
+    body.dark-mode .fc .fc-button-primary {
+        background-color: #1f1f1f !important;
+        color: #f1f5f9 !important;
+        border: 1px solid #27272a !important;
+    }
+
+    body.dark-mode .fc .fc-button-primary:hover,
+    body.dark-mode .fc .fc-button-primary.fc-button-active {
+        background-color: #2a2a2a !important;
+        border-color: #ffcc00 !important;
+        color: #ffcc00 !important;
+    }
+
+    /* Event Text Visibility Fix (Month & List View) */
+    body.dark-mode .fc-event-main,
+    body.dark-mode .fc-event-main-frame,
+    body.dark-mode .fc-event-title,
+    body.dark-mode .fc-event-time {
+        color: #ffffff !important;
+        font-weight: 500 !important;
+    }
+
+    /* FullCalendar List View Dark Overrides */
+    body.dark-mode .fc-list,
+    body.dark-mode .fc-list-table {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .fc-list-day-cushion,
+    body.dark-mode .fc-cell-shaded {
+        background-color: #1f1f1f !important;
+    }
+
+    body.dark-mode .fc-list-day-text,
+    body.dark-mode .fc-list-day-side-text {
+        color: #ffcc00 !important;
+        font-weight: 700 !important;
+    }
+
+    body.dark-mode .fc-list-event:hover td {
+        background-color: #2a2a2a !important;
+    }
+
+    body.dark-mode .fc-list-event-title,
+    body.dark-mode .fc-list-event-title a,
+    body.dark-mode .fc-list-event-time {
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .fc-list-empty {
+        background-color: #141414 !important;
+        color: #a1a1aa !important;
+    }
+
+    body.dark-mode .fc-daygrid-more-link {
+        color: #ffcc00 !important;
+    }
+
+    /* Popover Styling */
+    body.dark-mode .fc-popover {
+        background-color: #141414 !important;
+        border: 1px solid #27272a !important;
+    }
+
+    body.dark-mode .fc-popover-header {
+        background: #1f1f1f !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .fc-popover-body {
+        background-color: #141414 !important;
+    }
+
+    /* Dynamic Agenda & Modal Dark Overrides */
+    body.dark-mode .agenda-item-card {
+        background-color: #1f1f1f !important;
+        border: 1px solid #27272a !important;
+    }
+
+    body.dark-mode .agenda-item-card h6 {
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .agenda-item-card .border-top {
+        border-color: #27272a !important;
+    }
+
+    /* Text & Typography */
+    body.dark-mode .text-dark,
+    body.dark-mode h3,
+    body.dark-mode h4,
+    body.dark-mode h5,
+    body.dark-mode h6,
+    body.dark-mode label {
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .text-muted,
+    body.dark-mode .text-secondary {
+        color: #a1a1aa !important;
+    }
+
+    /* Modals */
+    body.dark-mode .modal-content {
+        background-color: #141414 !important;
+        border: 1px solid #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .modal-header,
+    body.dark-mode .modal-footer {
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .modal-body .bg-light {
+        background-color: #1f1f1f !important;
+    }
+
+    body.dark-mode .icon-shape.bg-primary-subtle {
+        background-color: #1f1f1f !important;
+        color: #ffcc00 !important;
+    }
+
+    body.dark-mode .btn-close {
+        filter: invert(1) grayscale(100%) brightness(200%);
+    }
+
+    /* Buttons */
+    body.dark-mode .btn-white {
+        background-color: #141414 !important;
+        color: #f1f5f9 !important;
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .btn-white i {
+        color: #ffcc00 !important;
+    }
+
+    body.dark-mode .btn-dark {
+        background-color: #ffcc00 !important;
+        color: #000000 !important;
+        border: none !important;
+    }
+
+    body.dark-mode .btn-dark:hover {
+        background-color: #ffd633 !important;
+    }
+
+    body.dark-mode .btn-brand {
+        background-color: #ffcc00 !important;
+        color: #000000 !important;
+    }
+
+    body.dark-mode .btn-brand i,
+    body.dark-mode .btn-brand span {
+        color: #000000 !important;
+    }
+
     @media (max-width: 768px) {
         .fc .fc-toolbar { flex-direction: column; gap: 10px; }
         .btn.btn-white{
@@ -110,8 +387,8 @@ require_once __DIR__ . '/../components/head.php';
     }
 </style>
 
-<div class="container-fluid">
-    <div class="row">
+<div class="container-fluid p-0">
+    <div class="row g-0">
         <div class="col-md-auto p-0">
             <?php require_once __DIR__ . '/../components/sidebar.php'; ?>
         </div>
@@ -119,10 +396,10 @@ require_once __DIR__ . '/../components/head.php';
         <div class="col p-0 d-flex flex-column main-content">
             <?php require_once __DIR__ . '/../components/header.php'; ?>
 
-            <div class="p-4">
+            <div class="p-3 p-md-4">
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
                     <div>
-                        <h3 class="fw-bold mb-0">Booking Schedule</h3>
+                        <h3 class="fw-bold mb-0 text-dark">Booking Schedule</h3>
                         <p class="text-muted mb-0 small">
                             <?= ($user_role === 'admin') ? "Full fleet overview." : "Your personal booking schedule." ?>
                         </p>

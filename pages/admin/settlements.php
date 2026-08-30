@@ -12,11 +12,11 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
 $pageTitle = 'Add Booking Payments';
 
 // FETCH COMPLETED BOOKINGS AND INJECT NEWLY ADAPTED TIER STRUCTURES FROM CARS STASH
-$query = "SELECT b.id, b.booking_type, b.start_date, b.end_date, b.total_price, b.extension_price, b.extension_hours,
+$query = "SELECT b.id, b.booking_type, b.start_date, b.end_date, b.pickup_time, b.return_time, 
+                 b.total_price, b.extension_price, b.extension_hours,
                  c.brand, c.model, c.plate_number, 
-                 c.price_10_hours, c.operator_10_hours,
-                 c.price_12_hours, c.operator_12_hours,
-                 c.price_24_hours, c.operator_24_hours,
+                 c.price_10_hours, c.price_12_hours, c.price_24_hours,
+                 c.ext_price_1_6, c.ext_price_7_10, c.ext_price_11_12, c.ext_price_13_24,
                  u.name as member_name, b.guest_name
           FROM bookings b
           JOIN cars c ON b.car_id = c.id
@@ -41,12 +41,26 @@ if ($res) {
 <?php require_once __DIR__ . '/../components/head.php'; ?>
 
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
     /* ==========================================================================
-       1. GLOBAL & CONTAINER LAYOUT ADJUSTMENTS
+       1. GLOBAL & CONTAINER LIGHT MODE LAYOUT
        ========================================================================== */
+    body, 
+    button, 
+    input, 
+    select, 
+    textarea, 
+    .form-control, 
+    .btn, 
+    .table {
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    }
+
     .main-content { 
         background: #f8fafc; 
         min-height: 100vh; 
+        transition: background-color 0.25s ease, color 0.25s ease;
     }
 
     .extra-small { 
@@ -57,20 +71,21 @@ if ($res) {
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
         border-radius: 12px;
         padding: 16px 20px;
-        color: white;
+        color: #ffffff;
     }
 
-    /* Base Styling for Custom Cards */
+    /* Base Styling for Settlement Cards */
     .settlement-card {
         background: #ffffff;
         border-radius: 16px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-        padding:5px;
-        border: 1px solid gray;
+        padding: 5px;
+        border: 1px solid #cbd5e1;
         overflow: hidden;
         height: 100%;
         display: flex;
         flex-direction: column;
+        transition: background-color 0.25s ease, border-color 0.25s ease;
     }
 
     .card-row-item {
@@ -86,23 +101,252 @@ if ($res) {
         border-bottom: none;
     }
 
+    .table th {
+        font-size: 0.75rem;
+        letter-spacing: 0.5px;
+    }
+
     /* ==========================================================================
-       2. WIDESCREEN & DESKTOP STYLES (Min-width: 1200px)
+       2. DARK MODE OVERRIDES & HIGH CONTRAST STYLES
+       ========================================================================== */
+    body.dark-mode,
+    body.dark-mode .main-content {
+        background-color: #0a0a0a !important;
+        color: #f1f5f9 !important;
+    }
+
+    /* Global Header & Navigation Fixes */
+    body.dark-mode header,
+    body.dark-mode nav,
+    body.dark-mode .navbar,
+    body.dark-mode .top-nav,
+    body.dark-mode div[class*="header"] {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode header span,
+    body.dark-mode header small,
+    body.dark-mode header p {
+        color: #a1a1aa !important;
+    }
+
+    /* Global Footer Fixes */
+    body.dark-mode footer,
+    body.dark-mode .footer,
+    body.dark-mode div[class*="footer"] {
+        background-color: #141414 !important;
+        border-top: 1px solid #27272a !important;
+        color: #a1a1aa !important;
+    }
+
+    body.dark-mode footer p {
+        color: #71717a !important;
+    }
+
+    /* Typography & Headers */
+    body.dark-mode h3,
+    body.dark-mode h4,
+    body.dark-mode h5,
+    body.dark-mode h6,
+    body.dark-mode .text-dark {
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .text-muted {
+        color: #a1a1aa !important;
+    }
+
+    /* Containers & Cards */
+    body.dark-mode .card,
+    body.dark-mode .desktop-table-container {
+        background-color: #141414 !important;
+        border: 1px solid #27272a !important;
+    }
+
+    body.dark-mode .settlement-card {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .card-row-item {
+        border-bottom-color: #27272a !important;
+    }
+
+    body.dark-mode .bg-light,
+    body.dark-mode .mobile-settlement-cards .bg-light {
+        background-color: #1f1f1f !important;
+        color: #f1f5f9 !important;
+    }
+
+    /* Table Styles */
+    body.dark-mode .table {
+        color: #f1f5f9 !important;
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .table thead,
+    body.dark-mode .table thead tr,
+    body.dark-mode .table thead th {
+        background-color: #1f1f1f !important;
+        color: #a1a1aa !important;
+        border-bottom-color: #27272a !important;
+    }
+
+    body.dark-mode .table td {
+        background-color: #141414 !important;
+        border-bottom-color: #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .table-hover tbody tr:hover td {
+        background-color: #1f1f1f !important;
+        color: #ffffff !important;
+    }
+
+    /* Modal Styling */
+    body.dark-mode .modal-content {
+        background-color: #141414 !important;
+        border: 1px solid #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .modal-header {
+        background-color: #1f1f1f !important;
+        border-bottom: 1px solid #27272a !important;
+    }
+
+    body.dark-mode .modal-footer {
+        background-color: #1f1f1f !important;
+        border-top: 1px solid #27272a !important;
+    }
+
+    /* Form Inputs & Controls */
+    body.dark-mode .form-control {
+        background-color: #0a0a0a !important;
+        border-color: #27272a !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .form-control:focus {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25) !important;
+    }
+
+    body.dark-mode label.form-label {
+        color: #e2e8f0 !important;
+    }
+
+    body.dark-mode hr {
+        border-color: #27272a !important;
+        opacity: 1 !important;
+    }
+
+    /* Financial Total Box & Notice Overrides */
+    body.dark-mode .total-box {
+        background: linear-gradient(135deg, #0f172a 0%, #020617 100%) !important;
+        border: 1px solid #1e293b !important;
+    }
+
+    body.dark-mode .alert-primary {
+        background-color: #1e293b !important;
+        border-color: #334155 !important;
+        color: #f1f5f9 !important;
+    }
+
+    /* DataTables Controls, Search Input & Dropdowns */
+    body.dark-mode .dataTables_wrapper .dataTables_length,
+    body.dark-mode .dataTables_wrapper .dataTables_filter,
+    body.dark-mode .dataTables_wrapper .dataTables_info,
+    body.dark-mode .dataTables_wrapper .dataTables_paginate {
+        color: #a1a1aa !important;
+    }
+
+    body.dark-mode .dataTables_wrapper .dataTables_filter input,
+    body.dark-mode .dataTables_wrapper .dataTables_length select {
+        background-color: #1f1f1f !important;
+        border: 1px solid #3f3f46 !important;
+        color: #ffffff !important;
+        border-radius: 6px !important;
+        padding: 6px 12px !important;
+    }
+
+    /* Placeholder text contrast fix for real-time search */
+    body.dark-mode .dataTables_wrapper .dataTables_filter input::placeholder {
+        color: #a1a1aa !important;
+        opacity: 1 !important;
+    }
+
+    body.dark-mode .dataTables_wrapper .dataTables_filter input::-webkit-input-placeholder {
+        color: #a1a1aa !important;
+    }
+
+    body.dark-mode .dataTables_wrapper .dataTables_filter input::-moz-placeholder {
+        color: #a1a1aa !important;
+    }
+
+    body.dark-mode .dataTables_wrapper .dataTables_filter input:-ms-input-placeholder {
+        color: #a1a1aa !important;
+    }
+
+    body.dark-mode .dataTables_wrapper .dataTables_filter input:focus {
+        border-color: #eab308 !important;
+        outline: none !important;
+        box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.25) !important;
+    }
+
+    body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button {
+        background: #1f1f1f !important;
+        border: 1px solid #27272a !important;
+        color: #f1f5f9 !important;
+        border-radius: 6px !important;
+    }
+
+    body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button.current,
+    body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
+        background: #eab308 !important;
+        border-color: #eab308 !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
+    }
+
+    body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+        background: #27272a !important;
+        color: #ffffff !important;
+        border-color: #3f3f46 !important;
+    }
+
+    body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button.disabled,
+    body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button.disabled:hover {
+        background: #141414 !important;
+        border-color: #27272a !important;
+        color: #52525b !important;
+    }
+
+    body.dark-mode .pagination,
+    body.dark-mode .page-link {
+        background-color: #1f1f1f !important;
+        border-color: #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .page-item.active .page-link {
+        background-color: #eab308 !important;
+        border-color: #eab308 !important;
+        color: #000000 !important;
+    }
+
+    /* ==========================================================================
+       3. WIDESCREEN & RESPONSIVE BREAKPOINTS
        ========================================================================== */
     @media (min-width: 1200px) {
         .mobile-settlement-cards { 
             display: none !important; 
         }
-        
-        #settlementTable th { 
-            font-size: 0.75rem; 
-            letter-spacing: 0.5px; 
-        }
     }
 
-    /* ==========================================================================
-       3. TABLET & MOBILE OVERHAUL BREAKPOINT (Max-width: 1199.98px)
-       ========================================================================== */
     @media (max-width: 1199.98px) {
         .desktop-table-container { 
             display: none !important; 
@@ -148,9 +392,6 @@ if ($res) {
         }
     }
 
-    /* ==========================================================================
-       4. CONTEXTUAL LAYOUT COMPRESSION (Max-width: 576px)
-       ========================================================================== */
     @media (max-width: 576px) {
         .modal-body { 
             padding: 1.25rem !important;
@@ -286,7 +527,15 @@ if ($res) {
 <?php foreach ($pending as $b): ?>
 <div class="modal fade" id="payModal<?= $b['id'] ?>" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
-        <form action="process/save_payment.php" method="POST" class="modal-content border-0 shadow-lg rounded-4" id="paymentForm<?= $b['id'] ?>">
+        <form action="process/save_payment.php" method="POST" 
+              class="modal-content border-0 shadow-lg rounded-4 payment-form-node" 
+              id="paymentForm<?= $b['id'] ?>"
+              data-end-date="<?= $b['end_date'] ?>"
+              data-return-time="<?= $b['return_time'] ?? '00:00:00' ?>"
+              data-ext-1-6="<?= $b['ext_price_1_6'] ?? 0 ?>"
+              data-ext-7-10="<?= $b['ext_price_7_10'] ?? 0 ?>"
+              data-ext-11-12="<?= $b['ext_price_11_12'] ?? 0 ?>"
+              data-ext-13-24="<?= $b['ext_price_13_24'] ?? 0 ?>">
             <div class="modal-header bg-dark text-white border-0 py-3">
                 <h5 class="modal-title fs-6">Financial Settlement: <?= $b['brand'] ?></h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -295,10 +544,22 @@ if ($res) {
                 <input type="hidden" name="booking_id" value="<?= $b['id'] ?>">
                 
                 <div class="alert alert-primary py-3 border-0 rounded-3 mb-4">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <span class="small"><i class="bi bi-info-circle me-2"></i>Base Rental Amount:</span>
-                        <span class="fw-bold">₱<?= number_format($b['total_price'], 2) ?></span>
+    <div class="d-flex justify-content-between align-items-center">
+        <span class="small"><i class="bi bi-info-circle me-2"></i>Base Rental Amount:</span>
+        <span class="fw-bold">₱<?= number_format($b['total_price'], 2) ?></span>
+    </div>
+    
+                    <div id="overtimeNotice<?= $b['id'] ?>" class="d-none mt-2 pt-2 border-top border-primary-subtle">
+                        <div class="d-flex justify-content-between align-items-center extra-small text-dark">
+                            <span><i class="bi bi-alarm text-danger me-1"></i>Scheduled Return:</span>
+                            <span class="fw-semibold"><?= date('M d, Y', strtotime($b['end_date'])) ?> <?= date('h:i A', strtotime($b['return_time'])) ?></span>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center extra-small text-danger fw-bold mt-1">
+                            <span><i class="bi bi-clock-history me-1"></i>Overtime Detected:</span>
+                            <span id="lateHoursText<?= $b['id'] ?>">0 Hours Late</span>
+                        </div>
                     </div>
+
                     <?php if($b['extension_hours'] > 0): ?>
                     <div class="d-flex justify-content-between align-items-center mt-2">
                         <span class="small"><i class="bi bi-clock-history me-2"></i>Extension (<?= $b['extension_hours'] ?> hrs):</span>
@@ -410,6 +671,52 @@ if ($res) {
     const bookingId = <?= $b['id'] ?>;
     const form = document.getElementById('paymentForm' + bookingId);
     if (!form) return;
+
+   // Check scheduled dropoff against current time to calculate dynamic overtime
+    function autoCalculateOvertime() {
+        const endDate = form.getAttribute('data-end-date');
+        const returnTime = form.getAttribute('data-return-time');
+        
+        if (!endDate || !returnTime) return;
+
+        const scheduledReturn = new Date(`${endDate}T${returnTime}`);
+        const actualReturn = new Date(); 
+        
+        const diffMs = actualReturn - scheduledReturn;
+        const lateHours = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60)));
+        
+        if (lateHours > 0) {
+            const ext1_6 = parseFloat(form.getAttribute('data-ext-1-6')) || 0;
+            const ext7_10 = parseFloat(form.getAttribute('data-ext-7-10')) || 0;
+            const ext11_12 = parseFloat(form.getAttribute('data-ext-11-12')) || 0;
+            const ext13_24 = parseFloat(form.getAttribute('data-ext-13-24')) || 0;
+            
+            let autoExtensionFee = 0;
+            
+            if (lateHours <= 6) autoExtensionFee = lateHours * ext1_6;
+            else if (lateHours <= 10) autoExtensionFee = lateHours * ext7_10;
+            else if (lateHours <= 12) autoExtensionFee = lateHours * ext11_12;
+            else autoExtensionFee = lateHours * ext13_24;
+            
+            const extInput = form.querySelector('[name="extension_fee"]');
+            if (extInput && (!extInput.dataset.userEdited || extInput.dataset.userEdited === "false")) {
+                extInput.value = autoExtensionFee.toFixed(2);
+            }
+
+            // --- ADD THESE LINES TO UNHIDE AND UPDATE THE HTML NOTICE ---
+            const noticeBox = document.getElementById('overtimeNotice' + bookingId);
+            const lateText = document.getElementById('lateHoursText' + bookingId);
+            if (noticeBox && lateText) {
+                noticeBox.classList.remove('d-none');
+                lateText.innerHTML = `${lateHours} Hour${lateHours > 1 ? 's' : ''} Late (+₱${autoExtensionFee.toLocaleString('en-PH', { minimumFractionDigits: 2 })})`;
+            }
+        }
+    }
+
+    const extInput = form.querySelector('[name="extension_fee"]');
+    if (extInput) {
+        extInput.addEventListener('input', () => extInput.dataset.userEdited = "true");
+    }
     
     function calculateTotals() {
         const dailyRent = parseFloat(form.querySelector('[name="daily_rent"]')?.value) || 0;
@@ -442,14 +749,15 @@ if ($res) {
         document.getElementById('totalNetInput' + bookingId).value = netTotal.toFixed(2);
     }
     
+    // Run automated check first, then run totals breakdown
+    autoCalculateOvertime();
+    calculateTotals();
+
     const inputs = form.querySelectorAll('input.calc-field');
     inputs.forEach(input => {
         input.addEventListener('input', calculateTotals);
         input.addEventListener('change', calculateTotals);
     });
-    
-    // Fallback invocation loop setup
-    calculateTotals();
 })();
 </script>
 <?php endforeach; ?>

@@ -56,7 +56,7 @@ if (isset($_POST['submit'])) {
         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
         $role = "user"; // Default role
         
-        // Generate secure token for URL verification + 6-digit OTP code
+        // Generate secure token for URL verification
         $verification_token = bin2hex(random_bytes(32)); 
         $is_verified = 0; // Account disabled until email is verified
 
@@ -72,10 +72,10 @@ if (isset($_POST['submit'])) {
             try {
                 // --- SMTP Configuration ---
                 $mail->isSMTP();
-                $mail->Host       = 'smtp.gmail.com';             // Replace with your SMTP server
+                $mail->Host       = 'smtp.gmail.com';             // SMTP server
                 $mail->SMTPAuth   = true;
                 $mail->Username   = 'ramesesjay@gmail.com';       // Your SMTP email address
-                $mail->Password   = 'oaim ekfw evgn xknw';          // Your App Password
+                $mail->Password   = 'ldyg fiyu fwkc mjnv';          // Your App Password
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
                 $mail->Port       = 587;
 
@@ -83,8 +83,11 @@ if (isset($_POST['submit'])) {
                 $mail->setFrom('ramesesjay@gmail.com', 'InstaCar');
                 $mail->addAddress($email, $name);
 
-                // In registerprocess.php:
-                $verify_url = "http://localhost/CAR-RENTAL/process/auth/registerverify.php?token=" . $verification_token;
+                // Dynamically construct verification URL based on current server host and directory path
+                $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https://" : "http://";
+                $host = $_SERVER['HTTP_HOST'];
+                $script_dir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'])); 
+                $verify_url = $protocol . $host . $script_dir . "/registerverify.php?token=" . $verification_token;
 
                 $mail->isHTML(true);
                 $mail->Subject = 'Verify Your InstaCar Account';

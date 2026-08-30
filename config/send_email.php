@@ -23,7 +23,7 @@ function sendEmail($toEmail, $customerName, $body, $subject = 'Booking Update') 
         $mail->Host       = 'smtp.gmail.com';
         $mail->SMTPAuth   = true;
         $mail->Username   = 'ramesesjay@gmail.com'; // Your Gmail address
-        $mail->Password   = 'oaim ekfw evgn xknw';    // Your Gmail App Password
+        $mail->Password   = 'ldyg fiyu fwkc mjnv';    // Your Gmail App Password
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS; 
         $mail->Port       = 587;
 

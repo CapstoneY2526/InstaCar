@@ -11,31 +11,199 @@ $firstLetter = strtoupper(substr($name, 0, 1));
 
 <style>
 
-@media (max-width: 768px) {
+/* Lock horizontal scroll on the root elements only */
+html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+}
 
-    .panel-title{
-        font-size:.8rem !important;
+/* Fix mobile overflow safely without breaking desktop layout */
+@media (max-width: 575.98px) {
+    /* 1. Stack stat cards into a clean 1-column layout */
+    .stat-card,
+    [class*="col-"] > .stat-card {
+        width: 100% !important;
+    }
+    
+    /* Force grid columns to take full width on mobile */
+    .row > [class*="col-6"],
+    .row > [class*="col-sm-6"] {
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+        margin-bottom: 0.75rem;
     }
 
-    .panel-subtitle{
-        font-size:7px !important;
+    /* 2. Fix inner card layout so icon and text sit side-by-side cleanly */
+    .stat-card .d-flex {
+        gap: 12px !important;
     }
 
-    .user-info-text {
-        display: none;
+    /* 3. Fix header action row from overflowing */
+    .instacar-topbar .d-flex {
+        gap: 6px !important;
     }
-
-    .header-sidebar-toggle {
-        margin-right: 10px;
-        flex-shrink: 0;
+    
+    .panel-title {
+        font-size: 0.75rem !important;
     }
+}
 
-    .instacar-avatar {
-        width: 40px;
-        height: 40px;
-        font-size: 1rem;
-    }
+/* Base Toggle Button */
+.user-dropdown-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
+/* --- LIGHT MODE --- */
+body:not(.dark-mode) .user-dropdown-toggle {
+    background: #ffffff !important;
+    border: 1.5px solid #000000 !important;
+    color: #000000 !important;
+}
+
+body:not(.dark-mode) .user-dropdown-toggle:hover {
+    background: #f8fafc !important;
+    border-color: #1e293b !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.12);
+    transform: translateY(-1px);
+}
+
+body:not(.dark-mode) .dropdown-menu {
+    background-color: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1) !important;
+}
+
+body:not(.dark-mode) .dropdown-item {
+    color: #000000 !important;
+}
+
+body:not(.dark-mode) .dropdown-item:hover {
+    background-color: #FFD700 !important;
+    color: #000000 !important;
+}
+
+/* --- DARK MODE --- */
+body.dark-mode .user-dropdown-toggle {
+    background: #18181b !important; 
+    border: 1.5px solid #facc15 !important;
+    color: #ffffff !important;
+}
+
+body.dark-mode .user-dropdown-toggle:hover {
+    background: #27272a !important;
+    border-color: #ffffff !important;
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.35) !important;
+    transform: translateY(-1px);
+}
+
+body.dark-mode .dropdown-menu {
+    background-color: #18181b !important;
+    border: 1px solid #27272a !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6) !important;
+}
+
+body.dark-mode .dropdown-item {
+    color: #f4f4f5 !important;
+}
+
+body.dark-mode .dropdown-item:hover {
+    background-color: #facc15 !important;
+    color: #000000 !important;
+}
+
+body.dark-mode .dropdown-item i {
+    color: #a1a1aa;
+}
+
+body.dark-mode .dropdown-item:hover i {
+    color: #000000 !important;
+}
+
+/* Dynamic Caret Arrow Rotation */
+.user-dropdown-toggle::after {
+    transition: transform 0.25s ease;
+}
+
+.user-dropdown-toggle.show::after {
+    transform: rotate(180deg);
+}
+
+/* Animated Smooth Dropdown Animation */
+.dropdown-menu {
+    display: block !important;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(10px) scale(0.97);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    border-radius: 12px !important;
+    padding: 6px !important;
+    margin-top: 8px !important;
+}
+
+.dropdown-menu.show {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: translateY(0) scale(1) !important;
+}
+
+.dropdown-item {
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 8px 12px !important;
+    transition: all 0.15s ease !important;
+}
+
+.dropdown-item:hover {
+    transform: translateX(4px);
+}
+
+/* Theme Toggle Button Base */
+.theme-toggle-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid #000000;
+    background: #ffffff;
+    transition: all 0.25s ease;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+body:not(.dark-mode) .theme-toggle-btn {
+    background: #ffffff !important;
+    border-color: #000000 !important;
+}
+
+body:not(.dark-mode) .theme-toggle-btn i {
+    color: #000000 !important;
+}
+
+body:not(.dark-mode) .theme-toggle-btn:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+body.dark-mode .theme-toggle-btn {
+    background: #18181b !important;
+    border-color: #facc15 !important;
+}
+
+body.dark-mode .theme-toggle-btn i {
+    color: #facc15 !important;
+}
+
+body.dark-mode .theme-toggle-btn:hover {
+    border-color: #ffffff !important;
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.35);
 }
 
 .instacar-topbar {
@@ -45,10 +213,9 @@ $firstLetter = strtoupper(substr($name, 0, 1));
     transition: all 0.3s ease;
     position: sticky;
     top: 0;
-    z-index: 1050; /* Changed from 999 to 1050 */
+    z-index: 1050;
 }
 
-/* Sidebar toggle button for mobile */
 .header-sidebar-toggle {
     display: none;
     background: #FFD700;
@@ -61,6 +228,7 @@ $firstLetter = strtoupper(substr($name, 0, 1));
     margin-right: 12px;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .header-sidebar-toggle:hover {
@@ -73,10 +241,15 @@ $firstLetter = strtoupper(substr($name, 0, 1));
     letter-spacing: 0.5px;
     color: #000000;
     text-transform: uppercase;
+    line-height: 1.2;
 }
 
 .panel-title span {
     color: #FFD700;
+}
+
+body.dark-mode .panel-title {
+    color: #ffffff !important;
 }
 
 .panel-subtitle {
@@ -98,24 +271,6 @@ $firstLetter = strtoupper(substr($name, 0, 1));
     flex-shrink: 0;
 }
 
-.user-dropdown-toggle {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    border: 1px solid #000000;
-    padding: 6px 12px;
-    border-radius: 10px;
-    background: #ffffff;
-    color: #000000;
-    transition: all 0.2s ease;
-}
-
-.user-dropdown-toggle:hover {
-    background: #fffcf0;
-    border-color: #FFD700;
-}
-
-/* User info text - hide on small screens */
 .user-info-text {
     display: block;
 }
@@ -126,44 +281,24 @@ $firstLetter = strtoupper(substr($name, 0, 1));
     font-weight: 800;
 }
 
-/* Dropdown styles */
-.dropdown-menu {
-    border-radius: 10px;
-    border: 1px solid #000000;
-    box-shadow: 4px 4px 0px rgba(0,0,0,0.1);
-}
-
-.dropdown-item {
-    font-size: 14px;
-    font-weight: 600;
-    color: #000000;
-}
-
-.dropdown-item:hover {
-    background: #FFD700;
-    color: #000000;
-}
-
-.dropdown-item i {
-    color: #FFD700;
-}
-
-.dropdown-item:hover i {
-    color: #000000;
-}
-
-/* Responsive Styles - ORIGINAL SIZE */
+/* Responsive Overrides */
 @media (max-width: 768px) {
     .instacar-topbar {
-        padding: 12px 16px !important;
+        padding: 10px 14px !important;
     }
     
+    .instacar-topbar .container-fluid {
+        flex-wrap: nowrap !important;
+        gap: 8px !important;
+    }
+
     .header-sidebar-toggle {
         display: flex;
+        margin-right: 6px;
     }
     
     .panel-title {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
     }
     
     .panel-subtitle {
@@ -175,8 +310,8 @@ $firstLetter = strtoupper(substr($name, 0, 1));
     }
     
     .user-dropdown-toggle {
-        padding: 6px 10px;
-        gap: 6px;
+        padding: 4px 8px;
+        gap: 4px;
     }
     
     .instacar-avatar {
@@ -184,9 +319,13 @@ $firstLetter = strtoupper(substr($name, 0, 1));
         height: 32px;
         font-size: 14px;
     }
+
+    .theme-toggle-btn {
+        width: 34px;
+        height: 34px;
+    }
 }
 
-/* Tablet - Slight adjustment */
 @media (min-width: 769px) and (max-width: 1200px) {
     .instacar-topbar {
         padding: 14px 20px !important;
@@ -205,75 +344,122 @@ $firstLetter = strtoupper(substr($name, 0, 1));
     }
 }
 
-/* Desktop - Original size restored */
 @media (min-width: 1201px) {
     .instacar-topbar {
         padding: 16px 24px !important;
     }
 }
+
+/* --- MOBILE OFF-CANVAS SIDEBAR OVERRIDES --- */
+@media (max-width: 768px) {
+    /* Ensure topbar sits below open overlay/sidebar */
+    .instacar-topbar {
+        z-index: 1000 !important;
+    }
+
+    /* Force mobile sidebar off-canvas drawer */
+    #sidebar {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: 280px !important;
+        max-width: 85vw !important;
+        height: 100vh !important;
+        z-index: 1090 !important; /* Higher than header (1000) */
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5) !important;
+        overflow-y: auto !important;
+    }
+
+    /* Slide-in state */
+    #sidebar.open {
+        transform: translateX(0) !important;
+    }
+
+    /* Background overlay backdrop */
+    #sidebarOverlay {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: rgba(0, 0, 0, 0.6) !important;
+        backdrop-filter: blur(2px);
+        z-index: 1080 !important; /* Sitting right below sidebar */
+    }
+}
 </style>
 
-<nav class="navbar instacar-topbar px-4 py-3">
-    <div class="container-fluid d-flex justify-content-between align-items-center">
+<nav class="navbar instacar-topbar">
+    <div class="container-fluid d-flex justify-content-between align-items-center flex-nowrap">
         
-        <div class="d-flex align-items-center">
+        <div class="d-flex align-items-center min-w-0 me-2">
             <!-- Sidebar Toggle Button for Mobile -->
-            <button class="header-sidebar-toggle" id="headerSidebarToggle">
+            <button class="header-sidebar-toggle" id="headerSidebarToggle" type="button" aria-label="Toggle navigation">
                 <i class="bi bi-list"></i>
             </button>
             
-            <div>
-                <div class="panel-title">
+            <div class="text-truncate">
+                <div class="panel-title text-truncate">
                     MANAGEMENT <span>PORTAL</span>
                 </div>
-                <div class="text-muted panel-subtitle">
-                    <?= strtoupper($role) ?> ACCESS
+                <div class="text-muted panel-subtitle text-truncate">
+                    <?= htmlspecialchars(strtoupper($role)) ?> ACCESS
                 </div>
             </div>
         </div>
 
-        <div class="dropdown">
-            <button
-                class="btn user-dropdown-toggle dropdown-toggle d-flex align-items-center"
-                type="button"
-                data-bs-toggle="dropdown"
-                aria-expanded="false"
-            >
-                <div class="instacar-avatar">
-                    <?= htmlspecialchars($firstLetter) ?>
-                </div>
-
-                <div class="text-start user-info-text">
-                    <div class="fw-bold small" style="line-height: 1;">
-                        <?= htmlspecialchars($name) ?>
-                    </div>
-                    <div class="user-info-status">
-                        ACTIVE
-                    </div>
-                </div>
+        <div class="d-flex align-items-center gap-2 gap-sm-3 flex-shrink-0">
+            <!-- Header Dark Mode Toggle Button -->
+            <button class="theme-toggle-btn" type="button" id="headerThemeToggleBtn" title="Toggle dark mode" aria-label="Toggle dark mode">
+                <i class="bi bi-moon-stars-fill" id="headerThemeToggleIcon"></i>
             </button>
 
-            <ul class="dropdown-menu dropdown-menu-end shadow border-0">
-                <li>
-                    <a class="dropdown-item py-2" href="../shared/profile.php">
-                        <i class="bi bi-person-fill me-2"></i>
-                        My Profile
-                    </a>
-                </li>
-                <li><hr class="dropdown-divider"></li>
-                <li>
-                    <a class="dropdown-item py-2 text-danger" href="../../process/auth/logout.php">
-                        <i class="bi bi-box-arrow-right-fill me-2"></i>
-                        Logout
-                    </a>
-                </li>
-            </ul>
+            <div class="dropdown">
+                <button
+                    class="btn user-dropdown-toggle dropdown-toggle d-flex align-items-center"
+                    type="button"
+                    data-bs-toggle="dropdown"
+                    aria-expanded="false"
+                >
+                    <div class="instacar-avatar">
+                        <?= htmlspecialchars($firstLetter) ?>
+                    </div>
+
+                    <div class="text-start user-info-text">
+                        <div class="fw-bold small" style="line-height: 1;">
+                            <?= htmlspecialchars($name) ?>
+                        </div>
+                        <div class="user-info-status">
+                            ACTIVE
+                        </div>
+                    </div>
+                </button>
+
+                <ul class="dropdown-menu dropdown-menu-end shadow border-0">
+                    <li>
+                        <a class="dropdown-item py-2" href="../shared/profile.php">
+                            <i class="bi bi-person-fill me-2"></i>
+                            My Profile
+                        </a>
+                    </li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                        <a class="dropdown-item py-2 text-danger" href="../../process/auth/logout.php">
+                            <i class="bi bi-box-arrow-right-fill me-2"></i>
+                            Logout
+                        </a>
+                    </li>
+                </ul>
+            </div>
         </div>
+
     </div>
 </nav>
 
 <script>
-// Sidebar toggle functionality
 document.addEventListener('DOMContentLoaded', function() {
     const headerToggle = document.getElementById('headerSidebarToggle');
     const sidebar = document.getElementById('sidebar');
@@ -291,7 +477,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Close sidebar when clicking overlay
     if (sidebarOverlay) {
         sidebarOverlay.addEventListener('click', function() {
             if (sidebar) {
@@ -301,30 +486,26 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    const toggleBtn = document.getElementById('headerThemeToggleBtn');
+    const toggleIcon = document.getElementById('headerThemeToggleIcon');
+    const STORAGE_KEY = 'instacar-admin-theme';
+
+    function applyTheme(isDark) {
+        document.body.classList.toggle('dark-mode', isDark);
+        if (toggleIcon) {
+            toggleIcon.className = isDark ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
+        }
+    }
+
+    applyTheme(localStorage.getItem(STORAGE_KEY) === 'dark');
+
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+            const isDark = !document.body.classList.contains('dark-mode');
+            applyTheme(isDark);
+            localStorage.setItem(STORAGE_KEY, isDark ? 'dark' : 'light');
+        });
+    }
 });
 </script>
-
-<style>
-body.sidebar-open {
-    overflow: hidden;
-}
-
-.sidebar-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.5);
-    z-index: 998;
-    display: none;
-}
-
-.sidebar {
-    z-index: 1000;
-}
-
-.instacar-topbar {
-    z-index: 999;
-}
-</style>

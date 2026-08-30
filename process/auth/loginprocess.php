@@ -17,19 +17,30 @@ if (isset($_POST['submit'])) {
     }
 
     try {
-        // 3. Short Query & Fetch in one line
+        // 3. Query user by email
         $sql = "SELECT * FROM users WHERE email = '$email' LIMIT 1";
         $user = mysqli_fetch_assoc(mysqli_query($conn, $sql));
 
-        // 4. If user exists, check the password
+        // 4. Verify password
         if ($user && password_verify($password, $user['password'])) {
+
+            // Check if email is verified
+            if (isset($user['is_verified']) && (int)$user['is_verified'] !== 1) {
+                $_SESSION['error'] = "Please verify your email address before logging in.";
+                ?>
+                <script>window.location.href = "../../login.php";</script>
+                <?php
+                exit();
+            }
+
+            // Regenerate session ID and save user context
             session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['name'] = $user['name'];
             $_SESSION['role'] = $user['role'];
             $_SESSION['success'] = "Welcome back, " . $user['name'] . "!";
 
-            // Determine the path based on role
+            // Determine the destination path based on role
             if ($user['role'] === "admin") {
                 $location = "../../pages/admin/dashboard.php";
             } elseif ($user['role'] === "operator") {

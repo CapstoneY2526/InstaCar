@@ -86,17 +86,148 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 <?php require_once __DIR__ . '/../components/head.php'; ?>
 
 <style>
-    /* Professional Print Styles */
-    @media print {
-        .col-md-2, .btn, .main-content > div:first-child, footer, .bi, .sidebar-backdrop, #sidebarWrapper { display: none !important; }
-        .col-lg-10, .col-12 { width: 100% !important; flex: 0 0 100% !important; max-width: 100% !important; padding: 0 !important; }
-        .card { border: 1px solid #dee2e6 !important; box-shadow: none !important; }
-        .table thead { background-color: #f8f9fa !important; color: black !important; }
-        body { background: white !important; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    /* ========================================================
+       BASE LAYOUT & COMPONENT OVERRIDES
+       ======================================================== */
+    body, 
+    button, 
+    input, 
+    select, 
+    textarea, 
+    .form-control, 
+    .btn, 
+    .table,
+    .modal-content { 
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; 
+    }
+
+    .main-content { 
+        background-color: var(--brand-bg, #f8fafc);
+        min-height: 100vh; 
+        transition: background-color 0.25s ease, color 0.25s ease;
     }
 
     .net-profit-cell { width: 150px; }
     .income-statement-table tr td { padding: 1rem 0.75rem; }
+
+    /* Standard Primary Action Button Styling */
+    .btn-warning-action, .btn-submit-action {
+        background-color: #ffcc00 !important;
+        border-color: #ffcc00 !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
+    }
+    .btn-warning-action:hover, .btn-submit-action:hover {
+        background-color: #e6b800 !important;
+        border-color: #e6b800 !important;
+        color: #000000 !important;
+    }
+
+    /* Professional Print Styles */
+    /* Professional Clean Print / PDF Export Styles */
+@media print {
+    @page { 
+        size: A4 portrait; 
+        margin: 12mm 15mm; 
+    }
+
+    body { 
+        background: #ffffff !important; 
+        color: #000000 !important; 
+        -webkit-print-color-adjust: exact !important; 
+        print-color-adjust: exact !important; 
+    }
+
+    /* Hide non-printable navigation & controls */
+    .col-md-2, 
+    .btn, 
+    footer, 
+    .bi, 
+    .sidebar-backdrop, 
+    #sidebarWrapper,
+    header, 
+    .navbar,
+    .alert { 
+        display: none !important; 
+    }
+
+    /* Layout Reset */
+    .container-fluid, .row, .col-12, .col-lg-10, .main-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+    }
+
+    /* Keep KPI Summary Cards Horizontal (3 Columns) */
+    .row.g-3.mb-4 {
+        display: flex !important;
+        flex-direction: row !important;
+        gap: 12px !important;
+        margin-bottom: 20px !important;
+    }
+
+    .row.g-3.mb-4 > [class*="col-"] {
+        flex: 1 1 0 !important;
+        width: 33.333% !important;
+        max-width: 33.333% !important;
+    }
+
+    .card { 
+        border: 1px solid #e2e8f0 !important; 
+        box-shadow: none !important; 
+        border-radius: 8px !important;
+        background-color: #ffffff !important;
+        page-break-inside: avoid;
+    }
+
+    /* Target specific KPI backgrounds for print color fidelity */
+    .card.bg-success {
+        background-color: #15803d !important;
+        color: #ffffff !important;
+    }
+
+    .card.bg-warning {
+        background-color: #b45309 !important;
+        color: #ffffff !important;
+    }
+
+    /* Table Print Cleanups */
+    .table-responsive {
+        overflow: visible !important;
+    }
+
+    .income-statement-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+    }
+
+    .income-statement-table th, 
+    .income-statement-table td {
+        border-bottom: 1px solid #e2e8f0 !important;
+        padding: 8px 12px !important;
+        font-size: 0.85rem !important;
+    }
+
+    .income-statement-table thead th {
+        background-color: #f1f5f9 !important;
+        color: #334155 !important;
+        font-weight: 700 !important;
+    }
+
+    .income-statement-table tfoot td {
+        background-color: #0f172a !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+
+    .income-statement-table tfoot .text-info { color: #38bdf8 !important; }
+    .income-statement-table tfoot .text-warning { color: #fde047 !important; }
+    .income-statement-table tfoot .text-success { color: #4ade80 !important; }
+}
 
     /* Responsive Mobile Sidebar & Layout Architecture Extensions */
     @media (max-width: 991.98px) {
@@ -136,6 +267,151 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
             opacity: 1;
         }
     }
+
+    /* ========================================================
+       DARK MODE COMPLETE OVERRIDES & CONTRAST FIXES
+       ======================================================== */
+    body.dark-mode,
+    body.dark-mode .main-content {
+        background-color: #0a0a0a !important;
+        color: #f1f5f9 !important;
+    }
+
+    /* Header & Footer Components */
+    body.dark-mode header,
+    body.dark-mode navbar,
+    body.dark-mode .navbar,
+    body.dark-mode footer,
+    body.dark-mode .footer {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode footer p,
+    body.dark-mode header span,
+    body.dark-mode header p {
+        color: #a1a1aa !important;
+    }
+
+    /* Mobile Sidebar Dark Overrides */
+    body.dark-mode .mobile-sidebar-container {
+        background-color: #141414 !important;
+        border-right: 1px solid #27272a !important;
+    }
+
+    /* Typography & High-Contrast Overrides */
+    body.dark-mode .text-dark,
+    body.dark-mode h3,
+    body.dark-mode h4,
+    body.dark-mode h5,
+    body.dark-mode h6,
+    body.dark-mode label {
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .text-muted,
+    body.dark-mode .text-secondary,
+    body.dark-mode span:not(.badge):not(.text-success):not(.text-primary):not(.text-warning):not(.text-info):not(.text-danger) {
+        color: #cbd5e1 !important;
+    }
+
+    body.dark-mode .text-primary {
+        color: #38bdf8 !important;
+    }
+
+    body.dark-mode .text-info {
+        color: #38bdf8 !important;
+    }
+
+    body.dark-mode .text-success {
+        color: #22c55e !important;
+    }
+
+    body.dark-mode .text-danger {
+        color: #f87171 !important;
+    }
+
+    body.dark-mode .text-warning {
+        color: #fde047 !important;
+    }
+
+    /* Cards, Alert & Container Surfaces in Dark Mode */
+    body.dark-mode .card,
+    body.dark-mode .alert-light {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .card.bg-white {
+        background-color: #141414 !important;
+    }
+
+    /* Dynamic Efficiency Margin Box Dark Adjustments */
+    body.dark-mode .bg-success {
+        background-color: #15803d !important;
+    }
+
+    body.dark-mode .bg-warning {
+        background-color: #b45309 !important;
+    }
+
+    /* Table Component Dark Overrides */
+    body.dark-mode .income-statement-table,
+    body.dark-mode .income-statement-table tr,
+    body.dark-mode .income-statement-table td,
+    body.dark-mode .income-statement-table th {
+        background-color: #141414 !important;
+        color: #f1f5f9 !important;
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .income-statement-table thead,
+    body.dark-mode .income-statement-table thead tr,
+    body.dark-mode .income-statement-table thead th,
+    body.dark-mode .income-statement-table .bg-light {
+        background-color: #1f1f23 !important;
+        color: #94a3b8 !important;
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .income-statement-table tbody tr:hover {
+        background-color: #1a1a1e !important;
+    }
+
+    body.dark-mode .income-statement-table tfoot,
+    body.dark-mode .income-statement-table tfoot tr,
+    body.dark-mode .income-statement-table tfoot td,
+    body.dark-mode .income-statement-table .bg-dark {
+        background-color: #18181b !important;
+        color: #ffffff !important;
+        border-color: #27272a !important;
+    }
+
+    /* Buttons in Dark Mode */
+    body.dark-mode .btn-dark {
+        background-color: #27272a !important;
+        border-color: #3f3f46 !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .btn-dark:hover {
+        background-color: #3f3f46 !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .btn-success {
+        background-color: #166534 !important;
+        border-color: #15803d !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .btn-success:hover {
+        background-color: #15803d !important;
+        border-color: #16a34a !important;
+    }
 </style>
 
 <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
@@ -146,13 +422,13 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
             <?php require_once __DIR__ . '/../components/sidebar.php'; ?>
         </div>
 
-        <div class="col-12 col-lg-10 p-0 d-flex flex-column main-content" style="background: #f8fafc; min-height: 100vh;">
+        <div class="col-12 col-lg-10 p-0 d-flex flex-column main-content">
             <?php require_once __DIR__ . '/../components/header.php'; ?>
 
             <div class="p-3 p-md-4">
                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
                     <div>
-                        <h3 class="fw-bold mb-0">Financial Statement</h3>
+                        <h3 class="fw-bold mb-0 text-dark">Financial Statement</h3>
                         <p class="text-muted mb-0 small">Annual performance report for <?= $current_year ?></p>
                     </div>
 
@@ -197,14 +473,14 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
                     </div>
                     <div class="col-12 col-md-4">
                         <div class="card border-0 shadow-sm p-3 rounded-4 <?= $efficiency > 30 ? 'bg-success' : 'bg-warning' ?> text-white">
-                            <small class="text-uppercase fw-bold" style="font-size: 0.65rem; opacity: 0.8;">Net Profit Margin</small>
+                            <small class="text-uppercase fw-bold" style="font-size: 0.65rem; opacity: 0.85;">Net Profit Margin</small>
                             <h4 class="fw-bold mb-0"><?= round($efficiency, 1) ?>%</h4>
-                            <small class="small" style="opacity: 0.8;">Net Profit / Gross Revenue</small>
+                            <small class="small" style="opacity: 0.85;">Net Profit / Gross Revenue</small>
                         </div>
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+                <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
                     <div class="table-responsive">
                         <table class="table table-hover income-statement-table align-middle mb-0">
                             <thead class="bg-light">
@@ -248,11 +524,11 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
                     </div>
                 </div>
                 
-                <div class="alert alert-light border-0 shadow-sm mt-4 rounded-4 p-3">
+                <div class="alert alert-light border-0 shadow-sm rounded-4 p-3 mb-0">
                     <div class="d-flex gap-3 align-items-center text-muted">
-                        <i class="bi bi-info-circle fs-5 flex-shrink-0"></i>
+                        <i class="bi bi-info-circle fs-5 flex-shrink-0 text-primary"></i>
                         <small>
-                            <strong>Financial Breakdown:</strong><br>
+                            <strong class="text-dark">Financial Breakdown:</strong><br>
                             • <strong>Gross Revenue</strong> = Total collected from customers<br>
                             • <strong>Net Revenue</strong> = What the house receives after standard transactional logistics cuts<br>
                             • <strong>Expenses</strong> = Operational costs (carwash, fuel, damage, etc.)<br>

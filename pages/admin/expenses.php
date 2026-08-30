@@ -27,9 +27,7 @@ if ($selected_car) {
                 COALESCE(SUM(p.carwash), 0) as carwash,
                 COALESCE(SUM(p.extension_fee), 0) as extension_fee,
                 COALESCE(SUM(p.delivery_fee), 0) as delivery_fee,
-                COALESCE(SUM(p.jer_delivery_fee), 0) as jer_delivery_fee,
                 COALESCE(SUM(p.pickup_fee), 0) as pickup_fee,
-                COALESCE(SUM(p.jer_pickup_fee), 0) as jer_pickup_fee,
                 COALESCE(SUM(p.fuel), 0) as fuel,
                 COALESCE(SUM(p.driver_fee), 0) as driver_fee,
                 COALESCE(SUM(p.damage_fee), 0) as damage_fee,
@@ -76,9 +74,7 @@ $categories = [
     'carwash' => 'Carwash',
     'extension_fee' => 'Extension Fee',
     'delivery_fee' => 'Delivery Fee',
-    'jer_delivery_fee' => 'Jer. Delivery Fee',
     'pickup_fee' => 'Pickup Fee',
-    'jer_pickup_fee' => 'Jer. Pick up Fee',
     'fuel' => 'Fuel',
     'driver_fee' => 'Driver Fee',
     'damage_fee' => 'Damage Fee',
@@ -89,7 +85,33 @@ $categories = [
 
 <?php require_once __DIR__ . '/../components/head.php'; ?>
 
+<!-- Google Font: Inter -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    /* ========================================================
+       BASE LIGHT/DARK LAYOUT & COMPONENT OVERRIDES
+       ======================================================== */
+    body, 
+    button, 
+    input, 
+    select, 
+    textarea, 
+    .form-control, 
+    .form-select,
+    .btn, 
+    .table { 
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; 
+    }
+
+    .main-content { 
+        background-color: var(--brand-bg, #f8fafc); 
+        min-height: 100vh; 
+        transition: background-color 0.25s ease, color 0.25s ease;
+    }
+
     /* Desktop-first Sticky Table Layout adjustments */
     @media (min-width: 992px) {
         .mobile-financial-card { display: none !important; }
@@ -141,15 +163,189 @@ $categories = [
     .summary-card {
         min-width: 115px;
         flex: 0 0 auto;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        transition: background-color 0.25s ease, border-color 0.25s ease;
     }
 
     .extra-small { font-size: 0.72rem; }
     .table th { font-size: 0.75rem; letter-spacing: 0.5px; }
-    .main-content { background: #f8fafc; min-height: 100vh; }
+
+    /* ========================================================
+       DARK MODE COMPLETE OVERRIDES & CONTRAST FIXES
+       ======================================================== */
+    body.dark-mode,
+    body.dark-mode .main-content {
+        background-color: #0a0a0a !important;
+        color: #f1f5f9 !important;
+    }
+
+    /* Header & Footer Components */
+    body.dark-mode header,
+    body.dark-mode navbar,
+    body.dark-mode .navbar,
+    body.dark-mode footer,
+    body.dark-mode .footer {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode footer p,
+    body.dark-mode header span,
+    body.dark-mode header p {
+        color: #a1a1aa !important;
+    }
+
+    /* Typography Overrides */
+    body.dark-mode .text-dark,
+    body.dark-mode h3,
+    body.dark-mode h4,
+    body.dark-mode h5,
+    body.dark-mode h6,
+    body.dark-mode label {
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .text-muted,
+    body.dark-mode .text-secondary {
+        color: #a1a1aa !important;
+    }
+
+    /* Form Select & Input Overrides */
+    body.dark-mode .form-select,
+    body.dark-mode .input-group-text {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .input-group-text i {
+        color: #ffcc00 !important;
+    }
+
+    /* Summary Cards in Dark Mode */
+    body.dark-mode .summary-card {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+    }
+
+    body.dark-mode .summary-card .border-bottom {
+        border-color: #27272a !important;
+        color: #ffcc00 !important;
+    }
+
+    body.dark-mode .summary-card span.small {
+        color: #ffffff !important;
+    }
+
+    /* Empty State Card */
+    body.dark-mode .card.p-5.text-center {
+        background-color: #141414 !important;
+        border: 1px solid #27272a !important;
+    }
+
+    body.dark-mode .card.p-5.text-center i.text-light {
+        color: #27272a !important;
+    }
+
+    /* Main Table Container Card */
+    body.dark-mode .card.overflow-hidden {
+        background-color: #141414 !important;
+        border: 1px solid #27272a !important;
+    }
+
+    body.dark-mode .card-header {
+        background-color: #141414 !important;
+        border-bottom: 1px solid #27272a !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .card-header i {
+        color: #ffcc00 !important;
+    }
+
+    /* Table & Cell Dark Mode Overrides (Explicit Contrast Fixes) */
+    body.dark-mode .table {
+        color: #f1f5f9 !important;
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .table thead,
+    body.dark-mode .table thead tr,
+    body.dark-mode .table thead th,
+    body.dark-mode .table .bg-light {
+        background-color: #1f1f1f !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .table th {
+        color: #a1a1aa !important;
+        border-bottom-color: #27272a !important;
+    }
+
+    body.dark-mode .table td {
+        background-color: #141414 !important;
+        border-bottom-color: #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .table td.text-secondary,
+    body.dark-mode .table td.fw-bold {
+        color: #ffffff !important;
+    }
+
+    /* Dark Mode Dash (-) / Zero Value Text Visibility */
+    body.dark-mode .table td.text-muted,
+    body.dark-mode .table td.opacity-25 {
+        color: #71717a !important;
+        opacity: 1 !important;
+    }
+
+    body.dark-mode .table-hover tbody tr:hover td {
+        background-color: #1f1f1f !important;
+        color: #ffffff !important;
+    }
+
+    /* Table Footer Overrides */
+    body.dark-mode .table tfoot,
+    body.dark-mode .table tfoot tr,
+    body.dark-mode .table tfoot td {
+        background-color: #1f1f1f !important;
+        color: #ffffff !important;
+        border-top-color: #27272a !important;
+    }
+
+    body.dark-mode .table tfoot td.text-success {
+        color: #10b981 !important;
+    }
+
+    body.dark-mode .table tfoot td.text-danger {
+        color: #ef4444 !important;
+    }
+
+    /* Mobile Financial Card Overrides */
+    body.dark-mode .mobile-financial-card {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .mobile-card-header {
+        background-color: #1f1f1f !important;
+        border-bottom-color: #27272a !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .mobile-data-row {
+        border-bottom-color: #27272a !important;
+        color: #f1f5f9 !important;
+    }
 </style>
 
-<div class="container-fluid">
-    <div class="row">
+<div class="container-fluid p-0">
+    <div class="row g-0">
         <div class="col-12 col-md-auto p-0">
             <?php require_once __DIR__ . '/../components/sidebar.php'; ?>
         </div>
@@ -160,7 +356,7 @@ $categories = [
             <div class="p-3 p-md-4" style="flex: 1;">
                 <div class="row align-items-center mb-4 g-3">
                     <div class="col-12 col-sm-6">
-                        <h3 class="fw-bold mb-0">Financial Analytics</h3>
+                        <h3 class="fw-bold mb-0 text-dark">Financial Analytics</h3>
                         <p class="text-muted mb-0 small">Performance Review for Fiscal Year <?= $current_year ?></p>
                     </div>
                     <div class="col-12 col-sm-6">

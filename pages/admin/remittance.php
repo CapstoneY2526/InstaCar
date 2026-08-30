@@ -61,11 +61,39 @@ while ($row = mysqli_fetch_assoc($history_res)) {
 
 <?php require_once __DIR__ . '/../components/head.php'; ?>
 
+<!-- Google Font: Inter -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
 <style>
-    .remit-card { transition: transform 0.2s; border-radius: 1rem !important; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    /* ========================================================
+       BASE LIGHT/DARK LAYOUT & COMPONENT OVERRIDES
+       ======================================================== */
+    body, 
+    button, 
+    input, 
+    select, 
+    textarea, 
+    .form-control, 
+    .btn, 
+    .table,
+    .modal-content { 
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; 
+    }
+
+    .main-content { 
+        background-color: var(--brand-bg, #f8fafc);
+        min-height: 100vh; 
+        transition: background-color 0.25s ease, color 0.25s ease;
+    }
+
+    .remit-card { transition: transform 0.2s, background-color 0.25s ease; border-radius: 1rem !important; }
     .remit-card:hover { transform: translateY(-3px); }
+    
     .jerry-fee-box { background: #fffbeb; border-left: 4px solid #f59e0b; }
     .owner-balance-box { background: #f0f9ff; border: 1px solid #bae6fd; }
+    .extra-small { font-size: 0.7rem; }
     
     /* Responsive Offcanvas Architecture for Mobile Viewports */
     @media (max-width: 991.98px) {
@@ -109,24 +137,209 @@ while ($row = mysqli_fetch_assoc($history_res)) {
             opacity: 1;
         }
     }
+
+    /* Standard Primary Button Accent (Yellow Variant) */
+    .btn-warning-action, .btn-primary, .btn-submit-action {
+        background-color: #ffcc00 !important;
+        border-color: #ffcc00 !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
+    }
+    .btn-warning-action:hover, .btn-primary:hover, .btn-submit-action:hover {
+        background-color: #e6b800 !important;
+        border-color: #e6b800 !important;
+        color: #000000 !important;
+    }
+
+    /* ========================================================
+       DARK MODE COMPLETE OVERRIDES & CONTRAST FIXES
+       ======================================================== */
+    body.dark-mode,
+    body.dark-mode .main-content {
+        background-color: #0a0a0a !important;
+        color: #f1f5f9 !important;
+    }
+
+    /* Header & Footer Components */
+    body.dark-mode header,
+    body.dark-mode navbar,
+    body.dark-mode .navbar,
+    body.dark-mode footer,
+    body.dark-mode .footer {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode footer p,
+    body.dark-mode header span,
+    body.dark-mode header p {
+        color: #a1a1aa !important;
+    }
+
+    /* Mobile Sidebar Dark Overrides */
+    body.dark-mode .mobile-sidebar-container {
+        background-color: #141414 !important;
+        border-right: 1px solid #27272a !important;
+    }
+
+    /* Typography & High-Contrast Overrides */
+    body.dark-mode .text-dark,
+    body.dark-mode h3,
+    body.dark-mode h4,
+    body.dark-mode h5,
+    body.dark-mode h6,
+    body.dark-mode label {
+        color: #ffffff !important;
+    }
+
+    /* Fix invisible muted/secondary text like P0.00 */
+    body.dark-mode .text-muted,
+    body.dark-mode .text-secondary,
+    body.dark-mode span:not(.badge):not(.text-success):not(.text-primary):not(.text-warning) {
+        color: #cbd5e1 !important;
+    }
+
+    body.dark-mode code.text-primary,
+    body.dark-mode .text-primary {
+        color: #38bdf8 !important;
+    }
+
+    body.dark-mode .text-success {
+        color: #22c55e !important;
+    }
+
+    /* Dark Mode Pending Badge Fix */
+    body.dark-mode .bg-warning-subtle {
+        background-color: #451a03 !important;
+        border: 1px solid #78350f !important;
+    }
+
+    body.dark-mode .bg-warning-subtle.text-warning {
+        color: #fde047 !important;
+    }
+
+    /* Cards & Container Surfaces */
+    body.dark-mode .card,
+    body.dark-mode .remit-card {
+        background-color: #141414 !important;
+        border: 1px solid #27272a !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+    }
+
+    body.dark-mode .jerry-fee-box {
+        background-color: #1f1a08 !important;
+        border-left: 4px solid #f59e0b !important;
+    }
+
+    body.dark-mode .jerry-fee-box .text-warning-emphasis {
+        color: #fcd34d !important;
+    }
+
+    body.dark-mode .owner-balance-box {
+        background-color: #0c1a24 !important;
+        border: 1px solid #0369a1 !important;
+    }
+
+    body.dark-mode .owner-balance-box h4,
+    body.dark-mode .owner-balance-box small {
+        color: #38bdf8 !important;
+    }
+
+    /* List Group & Remittance History */
+    body.dark-mode .list-group-item {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .list-group-item .text-dark {
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .list-group-item .border-bottom {
+        border-color: #27272a !important;
+    }
+
+    /* Modal Dark Theme Styles */
+    body.dark-mode .modal-content {
+        background-color: #141414 !important;
+        border: 1px solid #27272a !important;
+        color: #f1f5f9 !important;
+    }
+
+    body.dark-mode .modal-header {
+        background-color: #141414 !important;
+        border-bottom: 1px solid #27272a !important;
+    }
+
+    body.dark-mode .modal-footer {
+        background-color: #141414 !important;
+        border-top: 1px solid #27272a !important;
+    }
+
+    body.dark-mode .modal-vehicle-box {
+        background-color: #1f1f1f !important;
+        color: #ffffff !important;
+    }
+
+    /* Input & Placeholder High-Contrast Fixes */
+    body.dark-mode .form-control,
+    body.dark-mode textarea {
+        background-color: #1a1f26 !important;
+        border: 1px solid #3b4252 !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .form-control::placeholder,
+    body.dark-mode textarea::placeholder {
+        color: #94a3b8 !important;
+        opacity: 0.8 !important;
+    }
+
+    body.dark-mode .form-control:focus,
+    body.dark-mode textarea:focus {
+        background-color: #1a1f26 !important;
+        border-color: #ffcc00 !important;
+        color: #ffffff !important;
+        box-shadow: 0 0 0 0.25rem rgba(255, 204, 0, 0.2) !important;
+    }
+
+    /* Action Buttons in Dark Mode */
+    body.dark-mode .btn-white {
+        background-color: #141414 !important;
+        color: #f1f5f9 !important;
+        border-color: #27272a !important;
+    }
+
+    body.dark-mode .btn-white:hover {
+        background-color: #1f1f1f !important;
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .btn-secondary {
+        background-color: #27272a !important;
+        border-color: #3f3f46 !important;
+        color: #f1f5f9 !important;
+    }
 </style>
 
 <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
 
-<div class="container-fluid">
-    <div class="row">
+<div class="container-fluid p-0">
+    <div class="row g-0">
         <div class="col-lg-2 p-0 d-none d-lg-block mobile-sidebar-container" id="sidebarWrapper">
             <?php require_once __DIR__ . '/../components/sidebar.php'; ?>
         </div>
 
-        <div class="col-12 col-lg-10 p-0 d-flex flex-column main-content" style="background: #f8fafc; min-height: 100vh;">
+        <div class="col-12 col-lg-10 p-0 d-flex flex-column main-content">
             <?php require_once __DIR__ . '/../components/header.php'; ?>
 
-            <div class="p-3 p-md-4 main-content-padding">
+            <div class="p-3 p-md-4 main-content-padding" style="flex: 1;">
                 <div class="d-flex justify-content-between align-items-center mb-4 payout-header">
                     <div>
                         <div class="d-flex align-items-center gap-2 mb-1">
-                            <h3 class="fw-bold mb-0">Remittance</h3>
+                            <h3 class="fw-bold mb-0 text-dark">Remittance</h3>
                             <i class="bi bi-cash-stack text-success fs-4"></i>
                         </div>
                         <p class="text-muted mb-0 small">Manage payouts and delivery fee settlements.</p>
@@ -163,13 +376,13 @@ while ($row = mysqli_fetch_assoc($history_res)) {
                                             <?php if($row['total_jerry_fees'] > 0): ?>
                                             <div class="p-3 rounded-3 mb-3 jerry-fee-box">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                                    <span class="text-warning-emphasis fw-bold extra-small text-uppercase">Jerry Delivery Fees</span>
+                                                    <span class="text-warning-emphasis fw-bold extra-small text-uppercase"> Delivery Fees</span>
                                                     <span class="fw-bold text-dark">₱<?= number_format($row['total_jerry_fees'], 2) ?></span>
                                                 </div>
                                                 <form action="process/clear_jerry_fees.php" method="POST">
                                                     <input type="hidden" name="car_id" value="<?= $row['id'] ?>">
-                                                    <button type="submit" class="btn btn-sm btn-warning w-100 fw-bold py-1 shadow-sm" style="font-size: 0.7rem;" onclick="return confirm('Clear Jerry\'s delivery fees? This will mark them as paid.')">
-                                                        <i class="bi bi-person-check me-1"></i> CLEAR JERRY FEE
+                                                    <button type="submit" class="btn btn-sm btn-warning w-100 fw-bold py-1 shadow-sm" style="font-size: 0.7rem;" onclick="return confirm('Clear delivery fees? This will mark them as paid.')">
+                                                        <i class="bi bi-person-check me-1"></i> CLEAR FEE
                                                     </button>
                                                 </form>
                                             </div>
@@ -195,7 +408,7 @@ while ($row = mysqli_fetch_assoc($history_res)) {
                                                 <h4 class="fw-bold text-primary mb-0">₱<?= number_format($row['balance_to_remit'], 2) ?></h4>
                                             </div>
 
-                                            <button class="btn btn-primary w-100 mt-3 py-2 rounded-3 shadow-sm fw-bold" 
+                                            <button class="btn btn-warning-action btn-primary w-100 mt-3 py-2 rounded-3 shadow-sm fw-bold" 
                                                     onclick="openRemitForm(<?= $row['id'] ?>, '<?= addslashes($row['brand'] . ' ' . $row['model']) ?>', <?= $row['balance_to_remit'] ?>)">
                                                 <i class="bi bi-wallet2 me-2"></i>Process Payout
                                             </button>
@@ -256,10 +469,11 @@ while ($row = mysqli_fetch_assoc($history_res)) {
     </div>
 </div>
 
+<!-- Modal Form - Dark Themed with Yellow Submit Action -->
 <div class="modal fade" id="remitModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <form action="process/save_remit_action.php" method="POST" class="modal-content border-0 shadow-lg rounded-4">
-            <div class="modal-header bg-dark text-white p-4">
+            <div class="modal-header p-4">
                 <h5 class="modal-title fw-bold"><i class="bi bi-cash-coin me-2 text-warning"></i>Process Owner Payout</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
@@ -268,7 +482,7 @@ while ($row = mysqli_fetch_assoc($history_res)) {
                 
                 <div class="mb-4">
                     <label class="form-label small fw-bold text-muted text-uppercase">Vehicle</label>
-                    <div class="bg-light rounded-3 p-2 px-3">
+                    <div class="modal-vehicle-box bg-light rounded-3 p-2 px-3">
                         <span id="modal_car_name" class="fw-bold"></span>
                     </div>
                 </div>
@@ -287,9 +501,9 @@ while ($row = mysqli_fetch_assoc($history_res)) {
                     <textarea name="remarks" class="form-control" rows="3" placeholder="e.g. Paid via GCash / Bank Transfer / Cash"></textarea>
                 </div>
             </div>
-            <div class="modal-footer bg-light border-0 p-4 pt-2">
+            <div class="modal-footer border-0 p-4 pt-2">
                 <button type="button" class="btn btn-secondary px-4 rounded-3" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" class="btn btn-success px-4 flex-grow-1 py-2 fw-bold shadow-sm rounded-3">
+                <button type="submit" class="btn btn-submit-action btn-warning px-4 flex-grow-1 py-2 fw-bold shadow-sm rounded-3">
                     <i class="bi bi-check-circle me-2"></i>Confirm Payout
                 </button>
             </div>
@@ -309,12 +523,10 @@ function openRemitForm(id, name, amount) {
 
 // Fixed Layout Offcanvas Tracking Engine
 document.addEventListener("DOMContentLoaded", function () {
-    // Looks for any button layout wrapping the yellow hamburger design in your header module
     const headerElement = document.querySelector('.main-content header, .main-content nav, .container-fluid');
     let toggleBtn = null;
     
     if (headerElement) {
-        // Find the button containing the icon line markers or located near the title text workspace
         const buttons = headerElement.getElementsByTagName('button');
         for (let btn of buttons) {
             if (btn.querySelector('.bi-list') || btn.innerHTML.includes('<span') || btn.className.includes('navbar-toggler')) {
@@ -324,7 +536,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
     
-    // Fallback tracker if header structure search has zero hits
     if (!toggleBtn) {
         toggleBtn = document.querySelector('header button, .navbar-toggler, .bg-warning button');
     }

@@ -1,5 +1,11 @@
 <?php
 session_start();
+
+// Generate CSRF token if not already set
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 require_once __DIR__ . '/pages/components/sweetalert2.php';
 ?>
 
@@ -30,7 +36,6 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
             color: var(--brand-white);
         }
 
-        /* Back to Home floating button */
         .btn-back-home {
             position: absolute;
             top: 25px;
@@ -130,6 +135,52 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
             transform: translateY(-2px);
         }
 
+        .btn-google {
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: 600;
+            background-color: #2a2a2a;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--brand-white);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            text-decoration: none;
+        }
+
+        .btn-google:hover {
+            background-color: #333333;
+            border-color: var(--brand-yellow);
+            color: var(--brand-yellow);
+            transform: translateY(-2px);
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            color: #888;
+            margin: 20px 0;
+            font-size: 0.85rem;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .divider:not(:empty)::before {
+            margin-right: .5em;
+        }
+
+        .divider:not(:empty)::after {
+            margin-left: .5em;
+        }
+
         .text-yellow {
             color: var(--brand-yellow) !important;
         }
@@ -197,6 +248,9 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
             </div>
 
             <form action="process/auth/loginprocess.php" method="POST" class="text-start">
+                <!-- CSRF Token Input -->
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
+
                 <div class="mb-3">
                     <label class="form-label small fw-bold">Email Address</label>
                     <input type="email" name="email" class="form-control" placeholder="name@example.com" required>
@@ -213,11 +267,18 @@ require_once __DIR__ . '/pages/components/sweetalert2.php';
                     </div>
                 </div>
 
-                <button type="submit" name="submit" class="btn btn-login w-100 mb-3">
+                <button type="submit" name="submit" class="btn btn-login w-100">
                     Sign In
                 </button>
+
+                <div class="divider">OR</div>
+
+                <a href="process/auth/googlelogin.php" class="btn btn-google w-100">
+                    <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" width="18" height="18">
+                    <span>Continue with Google</span>
+                </a>
                 
-                <div class="text-center mt-3">
+                <div class="text-center mt-4">
                     <p class="small text-muted mb-1">Don't have an account? <a href="register.php" class="fw-bold">Sign up</a></p>
                     <p class="small"><a href="index.php" class="text-secondary"><i class="bi bi-house-door me-1"></i>Back to Main Site</a></p>
                 </div>
