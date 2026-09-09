@@ -51,6 +51,7 @@ require_once __DIR__ . '/../components/head.php';
         box-shadow: 0 4px 20px rgba(0,0,0,0.03);
         padding: 1rem;
         transition: background-color 0.25s ease, border-color 0.25s ease;
+        overflow: hidden;
     }
 
     :root {
@@ -59,6 +60,44 @@ require_once __DIR__ . '/../components/head.php';
         --fc-button-hover-bg-color: #1e293b;
         --fc-button-active-bg-color: #0f172a;
         --fc-border-color: #f1f5f9;
+    }
+
+    /* Prevent event overflow beyond calendar cells */
+    .fc-daygrid-day-frame {
+        overflow: hidden !important;
+        max-height: 120px;
+    }
+
+    .fc-daygrid-day {
+        cursor: pointer !important;
+        position: relative;
+    }
+
+    .fc-daygrid-day-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 8px !important;
+    }
+
+    .fc-daygrid-day-number {
+        font-weight: 700;
+        text-decoration: underline !important;
+        text-underline-offset: 3px;
+    }
+
+    /* "View schedule" indicator on dates */
+    .view-more-hint {
+        font-size: 0.65rem;
+        color: #64748b;
+        font-weight: 600;
+        display: inline-block;
+        opacity: 0.8;
+    }
+
+    .fc-daygrid-day:hover .view-more-hint {
+        color: #ffcc00;
+        opacity: 1;
     }
 
     .fc-daygrid-more-link {
@@ -101,10 +140,13 @@ require_once __DIR__ . '/../components/head.php';
     
     .fc-event {
         border: none !important;
-        padding: 3px 8px !important;
+        padding: 2px 6px !important;
         font-size: 0.75rem !important;
         border-radius: 6px !important;
         cursor: pointer;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
     }
 
     .fc-day-today { background: #f8fafc !important; }
@@ -201,7 +243,11 @@ require_once __DIR__ . '/../components/head.php';
 
     /* Day Numbers */
     body.dark-mode .fc .fc-daygrid-day-number {
-        color: #f1f5f9 !important;
+        color: #ffcc00 !important;
+    }
+
+    body.dark-mode .view-more-hint {
+        color: #a1a1aa !important;
     }
 
     /* Active Today Highlight */
@@ -385,6 +431,217 @@ require_once __DIR__ . '/../components/head.php';
         .fc{ font-size:.85rem; }
         .fc-view-harness{ min-height:450px !important; }
     }
+
+    /* Allow multi-day continuous event bars to stretch seamlessly */
+    .fc-daygrid-block-event {
+        margin-top: 2px !important;
+        margin-bottom: 2px !important;
+    }
+
+    .fc-daygrid-event-harness {
+        margin-bottom: 2px !important;
+    }
+
+    .fc-daygrid-day-frame {
+        overflow: visible !important;
+        max-height: none !important;
+    }
+
+    /* ========================================================
+       STATUS-BASED EVENT COLORS (matches legend: Pending / Approved / Completed / Cancelled)
+       ======================================================== */
+    .fc-event.status-pending {
+        background-color: #f59e0b !important;
+        border-color: #f59e0b !important;
+    }
+    .fc-event.status-pending .fc-event-title,
+    .fc-event.status-pending .fc-event-main-frame,
+    .fc-event.status-pending .fc-event-time {
+        color: #1f1300 !important;
+    }
+
+    .fc-event.status-approved {
+        background-color: #10b981 !important;
+        border-color: #10b981 !important;
+    }
+    .fc-event.status-approved .fc-event-title,
+    .fc-event.status-approved .fc-event-main-frame,
+    .fc-event.status-approved .fc-event-time {
+        color: #ffffff !important;
+    }
+
+    .fc-event.status-completed {
+        background-color: #3b82f6 !important;
+        border-color: #3b82f6 !important;
+    }
+    .fc-event.status-completed .fc-event-title,
+    .fc-event.status-completed .fc-event-main-frame,
+    .fc-event.status-completed .fc-event-time {
+        color: #ffffff !important;
+    }
+
+    .fc-event.status-cancelled {
+        background-color: #ef4444 !important;
+        border-color: #ef4444 !important;
+    }
+    .fc-event.status-cancelled .fc-event-title,
+    .fc-event.status-cancelled .fc-event-main-frame,
+    .fc-event.status-cancelled .fc-event-time {
+        color: #ffffff !important;
+    }
+
+    /* Dim cancelled bookings slightly so active ones stand out, but keep readable */
+    .fc-event.status-cancelled { opacity: 0.85; }
+
+    /* List view dot bullet + time text should also carry the status color */
+    .fc-list-event.status-pending .fc-list-event-dot { border-color: #f59e0b !important; }
+    .fc-list-event.status-approved .fc-list-event-dot { border-color: #10b981 !important; }
+    .fc-list-event.status-completed .fc-list-event-dot { border-color: #3b82f6 !important; }
+    .fc-list-event.status-cancelled .fc-list-event-dot { border-color: #ef4444 !important; }
+
+    .fc-list-event.status-pending .status-chip { background:#f59e0b; color:#1f1300; }
+    .fc-list-event.status-approved .status-chip { background:#10b981; color:#fff; }
+    .fc-list-event.status-completed .status-chip { background:#3b82f6; color:#fff; }
+    .fc-list-event.status-cancelled .status-chip { background:#ef4444; color:#fff; }
+
+    /* ========================================================
+       LIST VIEW — polished, responsive styling (mobile / tablet / laptop)
+       ======================================================== */
+    .fc-list {
+        border-radius: 0.9rem !important;
+        overflow: hidden;
+        border: 1px solid var(--brand-border, #e2e8f0) !important;
+    }
+
+    .fc-list-day-cushion {
+        background: #f8fafc !important;
+        padding: 10px 16px !important;
+    }
+
+    .fc-list-day-text,
+    .fc-list-day-side-text {
+        font-weight: 700 !important;
+        color: #0f172a !important;
+        text-decoration: none !important;
+        font-size: 0.9rem;
+    }
+
+    .fc-list-table td {
+        padding: 10px 14px !important;
+        vertical-align: middle !important;
+        border-color: var(--brand-border, #f1f5f9) !important;
+    }
+
+    .fc-list-event {
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+    }
+
+    .fc-list-event:hover td {
+        background-color: #f8fafc;
+    }
+
+    .fc-list-event-time {
+        font-weight: 700 !important;
+        font-size: 0.8rem !important;
+        color: #475569 !important;
+        white-space: nowrap;
+    }
+
+    .fc-list-event-dot {
+        border-width: 5px !important;
+    }
+
+    .fc-list-event-title {
+        font-weight: 500 !important;
+        font-size: 0.85rem !important;
+    }
+
+    .fc-list-event-title .list-event-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .fc-list-event-title .list-event-main {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .fc-list-event-title .list-event-model {
+        font-weight: 700;
+        color: #0f172a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .fc-list-event-title .list-event-id {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: #94a3b8;
+    }
+
+    .fc-list-event-title .status-chip {
+        font-size: 0.62rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        padding: 3px 9px;
+        border-radius: 999px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .fc-list-empty {
+        padding: 3rem 1rem !important;
+        text-align: center;
+        font-weight: 600;
+        color: #94a3b8 !important;
+        background-color: #ffffff !important;
+    }
+
+    body.dark-mode .fc-list-event:hover td {
+        background-color: #2a2a2a !important;
+    }
+
+    body.dark-mode .fc-list-event-title .list-event-model {
+        color: #ffffff !important;
+    }
+
+    body.dark-mode .fc-list-event-title .list-event-id {
+        color: #71717a !important;
+    }
+
+    body.dark-mode .fc-list-empty {
+        background-color: #141414 !important;
+    }
+
+    /* Tablet */
+    @media (max-width: 992px) {
+        .fc-list-day-cushion { padding: 8px 12px !important; }
+        .fc-list-day-text, .fc-list-day-side-text { font-size: 0.82rem; }
+        .fc-list-event-time { font-size: 0.72rem !important; }
+        .fc-list-event-title { font-size: 0.8rem !important; }
+    }
+
+    /* Mobile */
+    @media (max-width: 576px) {
+        .fc-toolbar-chunk .fc-button {
+            padding: 0.4rem 0.65rem !important;
+            font-size: 0.72rem !important;
+        }
+        .fc-list-table td { padding: 8px 10px !important; }
+        .fc-list-event-time { font-size: 0.66rem !important; }
+        .fc-list-event-title { font-size: 0.75rem !important; }
+        .fc-list-event-title .list-event-row { gap: 6px; }
+        .fc-list-event-title .status-chip { font-size: 0.58rem; padding: 2px 7px; }
+        .fc-list-day-cushion { padding: 7px 10px !important; }
+    }
 </style>
 
 <div class="container-fluid p-0">
@@ -401,7 +658,7 @@ require_once __DIR__ . '/../components/head.php';
                     <div>
                         <h3 class="fw-bold mb-0 text-dark">Booking Schedule</h3>
                         <p class="text-muted mb-0 small">
-                            <?= ($user_role === 'admin') ? "Full fleet overview." : "Your personal booking schedule." ?>
+                            <?= ($user_role === 'admin') ? "Full fleet overview." : "Your assigned vehicle bookings." ?>
                         </p>
                     </div>
                     <div class="d-flex gap-2">
@@ -428,38 +685,6 @@ require_once __DIR__ . '/../components/head.php';
     </div>
 </div>
 
-<div class="modal fade" id="eventModal" tabindex="-1" style="z-index: 1065;">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg rounded-4">
-            <div class="modal-header border-0 pb-0">
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-4 pt-0 text-center">
-                <div class="icon-shape bg-primary-subtle text-primary mx-auto mb-3 d-flex align-items-center justify-content-center" style="width: 70px; height: 70px; border-radius: 20px;">
-                    <i class="bi bi-calendar-event fs-2"></i>
-                </div>
-                <h4 class="fw-bold mb-1" id="modalCar">Vehicle</h4>
-                <p class="text-muted mb-4" id="modalCustomer">Client Name</p>
-
-                <div class="d-flex justify-content-between bg-light p-3 rounded-3 mb-4 text-start">
-                    <div>
-                        <small class="text-muted d-block uppercase fw-bold" style="font-size: 0.6rem;">STATUS</small>
-                        <span id="modalStatus" class="fw-bold"></span>
-                    </div>
-                    <div class="text-end">
-                        <small class="text-muted d-block uppercase fw-bold" style="font-size: 0.6rem;">BOOKING ID</small>
-                        <span id="modalId" class="fw-bold"></span>
-                    </div>
-                </div>
-
-                <div class="d-grid">
-                    <a id="modalLink" href="#" class="btn btn-dark py-2 fw-bold rounded-3">View Details</a>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <div class="modal fade" id="dailyAgendaModal" tabindex="-1" style="z-index: 1060;">
     <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content border-0 shadow-lg rounded-4">
@@ -479,51 +704,30 @@ require_once __DIR__ . '/../components/head.php';
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var calendarEl = document.getElementById('calendar');
-    var eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
+    if (!calendarEl) return;
+
     var dailyAgendaModal = new bootstrap.Modal(document.getElementById('dailyAgendaModal'));
+    var userRole = '<?= $user_role ?>';
+    var userId = '<?= $user_id ?>';
 
-    var isMobile = window.innerWidth < 768;
+    function redirectToDetails(eventId) {
+        const detailPage = (userRole === 'operator') ? 'my_booking_details.php' : 'booking_details.php';
+        window.location.href = detailPage + "?id=" + eventId;
+    }
 
-    // Helper to format local Date objects to 'YYYY-MM-DD' cleanly without timezone shifting
     function toLocalIsoString(date) {
+        if (!date || isNaN(date.getTime())) return '';
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
         const dd = String(date.getDate()).padStart(2, '0');
         return `${yyyy}-${mm}-${dd}`;
     }
 
-    // Helper function to format human-readable times (e.g., "02:30 PM")
-    function formatToLocalTime(date) {
-        return date.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-        });
-    }
-
-    // Helper function to populate and show the detailed event modal
-    function showEventDetails(eventId, title, extendedProps) {
-        document.getElementById('modalCar').innerText = extendedProps.car || 'N/A';
-        document.getElementById('modalCustomer').innerText = title;
-        document.getElementById('modalId').innerText = "#" + eventId;
-        
-        const status = extendedProps.status;
-        const statusEl = document.getElementById('modalStatus');
-        statusEl.innerText = status;
-        
-        const colors = {
-            'Approved': '#10b981',
-            'Pending': '#f59e0b',
-            'Completed': '#3b82f6',
-            'Cancelled': '#ef4444'
-        };
-        statusEl.style.color = colors[status] || '#64748b';
-
-        const role = '<?= $user_role ?>';
-        const detailPage = (role === 'user') ? 'my_booking_details.php' : 'booking_details.php';
-        document.getElementById('modalLink').href = detailPage + "?id=" + eventId;
-        
-        eventModal.show();
+    function formatToMilitaryTime(date) {
+        if (!date || isNaN(date.getTime())) return '00:00';
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${hours}:${minutes}`;
     }
 
     var calendar = new FullCalendar.Calendar(calendarEl, {
@@ -531,26 +735,102 @@ document.addEventListener('DOMContentLoaded', function() {
         headerToolbar: {
             left: 'prev,next',
             center: 'title',
-            right: isMobile ? '' : 'dayGridMonth,listMonth'
+            right: 'dayGridMonth,listMonth'
         },
-        
-        dayMaxEvents: isMobile ? 2 : 5, 
+        dayMaxEvents: 4,
         moreLinkClick: "popover", 
-        events: 'process/fetch_bookings.php',
-        height: 'auto',
+        events: function(fetchInfo, successCallback, failureCallback) {
+            // Build the URL with user_id filter for operators
+            let url = 'process/fetch_bookings.php';
+            if (userRole === 'operator') {
+                url += '?user_id=' + userId;
+            }
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    successCallback(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching bookings:', error);
+                    failureCallback(error);
+                });
+        },
+        height: 650,
         editable: false,
         selectable: true,
-        
-        moreLinkContent: function(args) {
-            return '+ ' + args.num + ' more';
+        eventOrder: '-duration,start',
+
+        eventClassNames: function(arg) {
+            const status = (arg.event.extendedProps.status || '').toLowerCase();
+            return status ? ['status-' + status] : [];
+        },
+
+        eventContent: function(arg) {
+            const props = arg.event.extendedProps || {};
+            const model = props.model || 'Vehicle';
+            const color = props.color || 'N/A';
+            const status = props.status || '';
+
+            const rawStart = props.raw_start ? new Date(props.raw_start) : arg.event.start;
+            const rawEnd   = props.raw_end ? new Date(props.raw_end) : arg.event.end;
+
+            const isStartSegment = arg.isStart;
+            const isEndSegment   = arg.isEnd;
+
+            const releaseTime = formatToMilitaryTime(rawStart);
+            const returnTime  = formatToMilitaryTime(rawEnd);
+
+            let timeStr = '';
+
+            if (isStartSegment && isEndSegment) {
+                timeStr = `${releaseTime} - ${returnTime}`;
+            } else if (isStartSegment) {
+                timeStr = `${releaseTime} - 00:00`;
+            } else if (isEndSegment) {
+                timeStr = `00:00 - ${returnTime}`;
+            } else {
+                timeStr = `00:00 - 00:00`;
+            }
+
+            let customEl = document.createElement('div');
+            customEl.className = 'fc-event-main-frame';
+
+            if (arg.view.type === 'listMonth') {
+                customEl.innerHTML = `
+                    <div class="list-event-row">
+                        <div class="list-event-main">
+                            <span class="list-event-model">${model} • ${color}</span>
+                            <span class="list-event-id">ID #${arg.event.id}${timeStr ? ' • ' + timeStr : ''}</span>
+                        </div>
+                        ${status ? `<span class="status-chip">${status}</span>` : ''}
+                    </div>`;
+            } else {
+                customEl.innerHTML = `
+                    <div class="fc-event-title-container">
+                        <div class="fc-event-title fw-semibold text-truncate">
+                            ${model} • ${color}${timeStr ? ' • ' + timeStr : ''}
+                        </div>
+                    </div>`;
+            }
+            return { domNodes: [customEl] };
+        },
+
+        dayCellDidMount: function(arg) {
+            const topEl = arg.el.querySelector('.fc-daygrid-day-top');
+            if (topEl) {
+                const hint = document.createElement('span');
+                hint.className = 'view-more-hint';
+                hint.innerText = 'View schedule';
+                topEl.insertBefore(hint, topEl.firstChild);
+            }
         },
 
         dateClick: function(info) {
-            const clickedDateStr = info.dateStr; // Standard 'YYYY-MM-DD' from click context
+            const clickedDateStr = info.dateStr; 
             const formattedDateOptions = { month: 'short', day: 'numeric', year: 'numeric' };
             document.getElementById('agendaModalDateTitle').innerText = info.date.toLocaleDateString('en-US', formattedDateOptions);
 
-            // Establish strict local timeline points for accurate matching bounds
             const targetStart = new Date(info.date);
             targetStart.setHours(0, 0, 0, 0);
 
@@ -559,7 +839,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const allEvents = calendar.getEvents();
             
-            // Match overlapping events utilizing FullCalendar's exclusive end-date schema
             const filteredEvents = allEvents.filter(evt => {
                 let start = new Date(evt.start);
                 let end = evt.end ? new Date(evt.end) : new Date(start);
@@ -580,47 +859,41 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             filteredEvents.forEach(evt => {
-                const props = evt.extendedProps;
-                
-                let start = new Date(evt.start);
-                let end = evt.end ? new Date(evt.end) : new Date(start);
+                const props = evt.extendedProps || {};
+                let start = props.raw_start ? new Date(props.raw_start) : new Date(evt.start);
+                let end = props.raw_end ? new Date(props.raw_end) : (evt.end ? new Date(evt.end) : new Date(start));
 
-                // Build timezone-safe local strings for comparative tracking labels
                 const targetIsoStr = clickedDateStr;
                 const startIsoStr = toLocalIsoString(start);
-                
-                // For exclusive display matching, find the active visual last day
-                let lastDisplayDay = new Date(end);
-                if (evt.end) { 
-                    lastDisplayDay.setDate(lastDisplayDay.getDate() - 1); 
-                }
-                const endIsoStr = toLocalIsoString(lastDisplayDay);
+                const endIsoStr = toLocalIsoString(end);
 
                 let actionLabel = '';
                 let actionBadgeClass = '';
-                let timestampDisplay = '';
+                let timeRangeDisplay = '';
 
-                // Extract exact localized strings for pickup and return actions
-                const startTimeStr = formatToLocalTime(start);
-                const endTimeStr = formatToLocalTime(end);
+                const startTimeMil = formatToMilitaryTime(start) || '00:00';
+                const endTimeMil = formatToMilitaryTime(end) || '00:00';
 
                 if (startIsoStr === endIsoStr) {
                     actionLabel = 'Same-Day Rental';
                     actionBadgeClass = 'bg-dark text-white';
-                    timestampDisplay = `<div class="text-muted small mt-1"><i class="bi bi-clock me-1"></i> ${startTimeStr} - ${endTimeStr}</div>`;
+                    timeRangeDisplay = `${startTimeMil} - ${endTimeMil}`;
                 } else if (targetIsoStr === startIsoStr) {
                     actionLabel = '🛬 Vehicle Pickup';
                     actionBadgeClass = 'bg-primary bg-opacity-10 text-primary';
-                    timestampDisplay = `<div class="text-primary small mt-1 fw-semibold"><i class="bi bi-clock me-1"></i> Pickup Time: ${startTimeStr}</div>`;
+                    timeRangeDisplay = `${startTimeMil} - 00:00`;
                 } else if (targetIsoStr === endIsoStr) {
                     actionLabel = '🛫 Vehicle Return';
                     actionBadgeClass = 'bg-danger bg-opacity-10 text-danger';
-                    timestampDisplay = `<div class="text-danger small mt-1 fw-semibold"><i class="bi bi-clock me-1"></i> Return Time: ${endTimeStr}</div>`;
+                    timeRangeDisplay = `00:00 - ${endTimeMil}`;
                 } else {
-                    actionLabel = '🚗 Booked (All Time Out)';
+                    actionLabel = '🚗 Booked Out';
                     actionBadgeClass = 'bg-secondary bg-opacity-10 text-secondary';
-                    timestampDisplay = `<div class="text-muted small mt-1"><i class="bi bi-calendar-range me-1"></i> Mid-rent cycle (Out all day)</div>`;
+                    timeRangeDisplay = `All Day`;
                 }
+
+                const model = props.model || 'Vehicle';
+                const color = props.color || 'N/A';
 
                 const colors = {
                     'Approved': '#10b981',
@@ -637,21 +910,21 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
                             <span class="timeline-indicator-badge ${actionBadgeClass} d-inline-block mb-1">${actionLabel}</span>
-                            <h6 class="fw-bold mb-0 text-dark" style="font-size: 0.9rem;">${props.car || 'Vehicle'}</h6>
+                            <h6 class="fw-bold mb-0 text-dark" style="font-size: 0.9rem;">${model} • ${color}</h6>
                             <small class="text-muted d-block">${evt.title}</small>
-                            ${timestampDisplay}
+                            <div class="text-dark small mt-1 fw-bold"><i class="bi bi-clock me-1"></i> ${timeRangeDisplay}</div>
                         </div>
                         <span class="badge rounded-pill" style="background-color: ${statusColor}; font-size: 10px;">${props.status}</span>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top border-light">
                         <small class="text-muted fw-semibold">ID: #${evt.id}</small>
-                        <span class="text-primary fw-bold" style="font-size: 11px;">Tap to view →</span>
+                        <span class="text-primary fw-bold" style="font-size: 11px;">View details →</span>
                     </div>
                 `;
 
                 itemDiv.addEventListener('click', function() {
                     dailyAgendaModal.hide(); 
-                    showEventDetails(evt.id, evt.title, props);
+                    redirectToDetails(evt.id);
                 });
 
                 container.appendChild(itemDiv);
@@ -662,7 +935,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         eventClick: function(info) {
             info.jsEvent.preventDefault(); 
-            showEventDetails(info.event.id, info.event.title, info.event.extendedProps);
+            redirectToDetails(info.event.id);
         }
     });
 

@@ -7,13 +7,40 @@ if (!isset($_SESSION['user_id']) || !isset($_GET['id'])) {
     exit();
 }
 
+// Helper function for asset paths - FIXED FOR INFINITYFREE
+function asset($path) {
+    // Get the base URL
+    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://';
+    $host = $_SERVER['HTTP_HOST'];
+    
+    // Check if running on InfinityFree
+    $isInfinityFree = (strpos($host, 'rf.gd') !== false || 
+                       strpos($host, 'infinityfreeapp.com') !== false || 
+                       strpos($host, 'infinityfree.net') !== false ||
+                       strpos($host, 'epizy.com') !== false);
+    
+    // Determine the base path
+    if ($isInfinityFree) {
+        // On InfinityFree, use root path
+        $baseUrl = $protocol . $host . '/';
+    } else {
+        // Local development
+        $baseUrl = $protocol . $host . '/car-rental/';
+    }
+    
+    // Remove leading slash from path if present
+    $path = ltrim($path, '/');
+    
+    return $baseUrl . $path;
+}
+
 $booking_id = (int)$_GET['id'];
 $user_id = (int)$_SESSION['user_id'];
 $user_role = $_SESSION['role'];
 
-// 1. Fetch Booking with Car and User Details
+// Fetch Booking Details
 $query = "SELECT b.*, 
-          c.brand, c.model, c.plate_number, c.image_path, 
+          c.brand, c.model, c.plate_number, c.image_path AS car_image_path, 
           c.price_24_hours AS price_per_day, 
           c.operator_24_hours AS extension_price,
           u.name as registered_name, u.email as registered_email, u.phone as registered_phone,
@@ -24,7 +51,6 @@ $query = "SELECT b.*,
           JOIN users owner ON c.user_id = owner.id
           WHERE b.id = $booking_id";
 
-// 2. Security Check
 if ($user_role === 'operator') {
     $query .= " AND c.user_id = $user_id";
 } elseif ($user_role === 'user') {
@@ -38,7 +64,17 @@ if (!$booking) {
     die("<div class='container mt-5'><div class='alert alert-danger'>Booking not found or access denied.</div></div>");
 }
 
-// 3. PRIORITY LOGIC: Use registered info if user_id exists, otherwise use guest_name
+// Fetch Customer Photos list
+$photos_query = "SELECT * FROM booking_photos WHERE booking_id = $booking_id ORDER BY uploaded_at DESC";
+$photos_result = mysqli_query($conn, $photos_query);
+$customer_photos = $photos_result ? mysqli_fetch_all($photos_result, MYSQLI_ASSOC) : [];
+
+// Fetch Customer Remarks list
+$remarks_query = "SELECT r.*, u.name as author_name FROM booking_remarks r LEFT JOIN users u ON r.created_by = u.id WHERE r.booking_id = $booking_id ORDER BY r.created_at DESC";
+$remarks_result = mysqli_query($conn, $remarks_query);
+$customer_remarks = $remarks_result ? mysqli_fetch_all($remarks_result, MYSQLI_ASSOC) : [];
+
+// Priority display info
 $displayName  = !empty($booking['registered_name']) ? $booking['registered_name'] : $booking['guest_name'];
 $displayPhone = !empty($booking['registered_phone']) ? $booking['registered_phone'] : $booking['phone_number'];
 $displayEmail = !empty($booking['registered_email']) ? $booking['registered_email'] : ($booking['gmail'] ?? 'N/A');
@@ -46,8 +82,11 @@ $displayEmail = !empty($booking['registered_email']) ? $booking['registered_emai
 $pageTitle = "Booking Details #" . $booking['id'];
 require_once __DIR__ . '/../components/head.php';
 
-$images = explode(',', $booking['image_path']);
-$first_image = trim($images[0]);
+$car_images = explode(',', $booking['car_image_path']);
+$first_car_image = trim($car_images[0]);
+
+// Debug info - remove after testing
+// echo "<!-- Image path: " . asset('public/assets/images/cars/' . $first_car_image) . " -->";
 ?>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -82,7 +121,6 @@ $first_image = trim($images[0]);
         .main-wrapper { margin-left: 0; width: 100%; }
     }
 
-    /* Cards & Components */
     .card-custom {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
@@ -133,7 +171,6 @@ $first_image = trim($images[0]);
         outline: none !important;
     }
 
-    /* Primary Accent Button */
     .btn-primary-yellow {
         background-color: var(--brand-yellow) !important;
         border-color: var(--brand-yellow) !important;
@@ -162,7 +199,6 @@ $first_image = trim($images[0]);
         color: #0f172a;
     }
 
-    /* Status Badges */
     .status-pill {
         padding: 6px 16px;
         border-radius: 50rem;
@@ -173,21 +209,101 @@ $first_image = trim($images[0]);
         gap: 6px;
     }
 
-    /* Fade-in Animation */
-    @keyframes fadeIn {
-        from {
-            opacity: 0;
-            transform: translateY(8px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
+    .upload-dropzone {
+        border: 2px dashed #ffcc00;
+        background-color: #121212;
+        border-radius: 1rem;
+        padding: 2rem 1.5rem;
+        text-align: center;
+        cursor: pointer;
+        position: relative;
+        transition: all 0.3s ease;
+    }
+    .upload-dropzone:hover {
+        background-color: #1a1a1a;
+        border-color: #ffe066;
+    }
+    .upload-dropzone input[type="file"] {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        opacity: 0;
+        cursor: pointer;
+    }
+    .upload-dropzone .upload-icon-box {
+        width: 48px;
+        height: 48px;
+        border: 2px solid #ffcc00;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 0.75rem;
+        color: #ffcc00;
+        font-size: 1.5rem;
+    }
+    .upload-dropzone .upload-title {
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 1.05rem;
+        margin-bottom: 0.25rem;
+    }
+    .upload-dropzone .upload-subtitle {
+        color: #6c757d;
+        font-size: 0.85rem;
     }
 
-    /* ========================================================
-       CONSOLIDATED DARK MODE OVERRIDES
-    ======================================================== */
+    .remark-item {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 12px 16px;
+        position: relative;
+    }
+
+    .cust-photo-card {
+        position: relative;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #333;
+        height: 100px;
+    }
+    .cust-photo-card img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .btn-delete-badge {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        z-index: 10;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border-radius: 50%;
+        background-color: #dc3545;
+        color: #fff;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        cursor: pointer;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+    .btn-delete-badge:hover {
+        background-color: #bb2d3b;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
     body.dark-mode {
         background-color: var(--brand-black) !important;
         color: #f1f5f9 !important;
@@ -198,29 +314,25 @@ $first_image = trim($images[0]);
         background-color: var(--brand-black) !important;
     }
 
-    /* Header & Navbar */
     body.dark-mode header,
     body.dark-mode .header,
     body.dark-mode .topbar,
-    body.dark-mode .navbar,
-    body.dark-mode [class*="header"],
-    body.dark-mode [class*="topbar"],
-    body.dark-mode .main-wrapper > header,
-    body.dark-mode .main-wrapper > div:first-child:has(.dropdown-toggle) {
+    body.dark-mode .navbar {
         background-color: var(--brand-card-bg-dark) !important;
         border-color: var(--brand-border-dark) !important;
         color: #ffffff !important;
     }
 
-    /* Cards, Info Tiles & Controls */
     body.dark-mode .card-custom {
         background-color: var(--brand-card-bg-dark) !important;
         border-color: var(--brand-border-dark) !important;
         color: #f1f5f9 !important;
     }
 
-    body.dark-mode .info-tile {
+    body.dark-mode .info-tile,
+    body.dark-mode .remark-item {
         background-color: #1a1a1a !important;
+        border-color: var(--brand-border-dark) !important;
         color: #f1f5f9 !important;
     }
 
@@ -230,37 +342,15 @@ $first_image = trim($images[0]);
         color: #ffffff !important;
     }
 
-    body.dark-mode .btn-secondary-custom:hover {
-        background-color: #27272a !important;
-        color: #ffffff !important;
-    }
-
-    body.dark-mode .form-select-custom {
+    body.dark-mode .form-select-custom,
+    body.dark-mode .form-control-custom {
         background-color: #0d0d0d !important;
         border-color: var(--brand-border-dark) !important;
         color: #ffffff !important;
     }
 
-    body.dark-mode .form-select-custom:focus {
-        border-color: var(--brand-yellow) !important;
-        box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.2) !important;
-    }
-
-    body.dark-mode .text-muted {
-        color: #cbd5e1 !important;
-    }
-
-    body.dark-mode .border-light-subtle {
-        border-color: var(--brand-border-dark) !important;
-    }
-
-    /* Print View Customization */
-    @media print {
-        .main-wrapper { margin-left: 0 !important; width: 100% !important; }
-        .btn, sidebar, header, form { display: none !important; }
-        body, .main-content { background: white !important; color: black !important; }
-        .card-custom { border: 1px solid #ccc !important; box-shadow: none !important; }
-    }
+    body.dark-mode .text-muted { color: #cbd5e1 !important; }
+    body.dark-mode .border-light-subtle { border-color: var(--brand-border-dark) !important; }
 </style>
 
 <div class="dashboard-container">
@@ -294,15 +384,18 @@ $first_image = trim($images[0]);
             </div>
 
             <div class="row g-4">
-                <!-- MAIN CONTENT AREA -->
                 <div class="col-lg-8">
-                    <!-- CAR & RESERVATION SUMMARY CARD -->
+                    <!-- CAR SUMMARY CARD -->
                     <div class="card-custom p-4 mb-4">
                         <div class="d-flex align-items-center mb-4 flex-wrap gap-3">
                             <div class="car-image-container me-md-2">
-                                <img src="/car-rental/public/assets/images/cars/<?= htmlspecialchars($first_image) ?>" 
+                                <?php 
+                                $carImagePath = asset('public/assets/images/cars/' . $first_car_image);
+                                ?>
+                                <img src="<?= $carImagePath ?>" 
                                      style="width: 140px; height: 90px; object-fit: cover;" 
-                                     alt="Car Image">
+                                     alt="Car Image"
+                                     onerror="this.src='<?= asset('public/assets/images/cars/default.png') ?>'">
                             </div>
                             <div>
                                 <h3 class="fw-bold mb-1" style="font-size: 1.4rem;">
@@ -317,15 +410,14 @@ $first_image = trim($images[0]);
                             </div>
                         </div>
 
-                        <!-- DATES & PRICING METRICS TILE -->
                         <div class="row text-center info-tile p-3 g-3 m-0">
                             <div class="col-6 col-md-3">
                                 <small class="text-muted d-block mb-1">Pick-up Date</small>
-                                <span class="fw-bold"><?= date('M d, Y', strtotime($booking['start_date'])) ?></span>
+                                <span class="fw-bold"><?= date('M d, Y H:i', strtotime($booking['start_date'])) ?></span>
                             </div>
                             <div class="col-6 col-md-3">
                                 <small class="text-muted d-block mb-1">Return Date</small>
-                                <span class="fw-bold"><?= date('M d, Y', strtotime($booking['end_date'])) ?></span>
+                                <span class="fw-bold"><?= date('M d, Y H:i', strtotime($booking['end_date'])) ?></span>
                             </div>
                             <div class="col-6 col-md-3">
                                 <small class="text-muted d-block mb-1">Total Duration</small>
@@ -333,8 +425,10 @@ $first_image = trim($images[0]);
                                     <?php 
                                         $start = new DateTime($booking['start_date']);
                                         $end = new DateTime($booking['end_date']);
-                                        echo $start->diff($end)->days + 1; 
-                                    ?> Days
+                                        $diff = $start->diff($end);
+                                        $total_hours = ($diff->days * 24) + $diff->h + ($diff->i / 60);
+                                        echo number_format($total_hours, 1);
+                                    ?> Hours
                                 </span>
                             </div>
                             <div class="col-6 col-md-3">
@@ -349,6 +443,7 @@ $first_image = trim($images[0]);
                         <h5 class="fw-bold mb-4 d-flex align-items-center">
                             <i class="bi bi-person-vcard text-warning fs-4 me-2"></i> Customer Information
                         </h5>
+
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="small text-muted mb-1">Full Name</label>
@@ -362,6 +457,7 @@ $first_image = trim($images[0]);
                                 <label class="small text-muted mb-1">Email Address</label>
                                 <p class="fw-semibold mb-0"><?= htmlspecialchars($displayEmail) ?></p>
                             </div>
+
                             <?php if($user_role !== 'user'): ?>
                             <div class="col-12">
                                 <hr class="my-2 border-light-subtle">
@@ -369,19 +465,123 @@ $first_image = trim($images[0]);
                                 <p class="fw-semibold mb-0 text-warning"><?= htmlspecialchars($booking['operator_name']) ?></p>
                             </div>
                             <?php endif; ?>
+
+                            <!-- CUSTOMER DOCUMENTS & VERIFICATION PHOTOS -->
+                            <div class="col-12">
+                                <hr class="my-2 border-light-subtle">
+                                <label class="small text-muted mb-3 d-block fw-semibold">Customer Documents & Verification Photos</label>
+                                
+                                <?php if (!empty($customer_photos)): ?>
+                                    <div class="row g-2 mb-3">
+                                        <?php foreach ($customer_photos as $photo): 
+                                            $filePath = asset('public/assets/images/customers/' . $photo['file_name']);
+                                            $ext = strtolower(pathinfo($photo['file_name'], PATHINFO_EXTENSION));
+                                            $isPdf = ($ext === 'pdf');
+                                        ?>
+                                            <div class="col-4 col-sm-3">
+                                                <div class="cust-photo-card border rounded-3 overflow-hidden shadow-sm bg-dark text-center">
+                                                    <!-- Delete Photo Form -->
+                                                    <form action="process/delete_customer_item.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this document?');">
+                                                        <input type="hidden" name="type" value="photo">
+                                                        <input type="hidden" name="photo_id" value="<?= $photo['id'] ?>">
+                                                        <input type="hidden" name="booking_id" value="<?= $booking['id'] ?>">
+                                                        <input type="hidden" name="file_name" value="<?= htmlspecialchars($photo['file_name']) ?>">
+                                                        <button type="submit" class="btn-delete-badge" title="Delete file">
+                                                            <i class="bi bi-x"></i>
+                                                        </button>
+                                                    </form>
+
+                                                    <a href="<?= $filePath ?>" target="_blank" class="d-flex flex-column align-items-center justify-content-center h-100 text-decoration-none p-2">
+                                                        <?php if ($isPdf): ?>
+                                                            <i class="bi bi-file-earmark-pdf-fill text-danger fs-1 mb-1"></i>
+                                                            <span class="text-light small text-truncate w-100" style="font-size: 0.75rem;">
+                                                                <?= htmlspecialchars($photo['file_name']) ?>
+                                                            </span>
+                                                        <?php else: ?>
+                                                            <img src="<?= $filePath ?>" alt="Customer Document" class="w-100 h-100 object-fit-cover" onerror="this.style.display='none'">
+                                                        <?php endif; ?>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <p class="text-muted small fst-italic mb-3">No documents uploaded yet.</p>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- CUSTOMER REMARKS & NOTES HISTORY -->
+                            <div class="col-12">
+                                <hr class="my-2 border-light-subtle">
+                                <label class="small text-muted mb-2 d-block fw-semibold">Customer Remarks & Notes History</label>
+
+                                <?php if (!empty($customer_remarks)): ?>
+                                    <div class="d-flex flex-column gap-2 mb-3">
+                                        <?php foreach ($customer_remarks as $remark): ?>
+                                            <div class="remark-item">
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <small class="fw-bold text-warning"><?= htmlspecialchars($remark['author_name'] ?? 'System / User') ?></small>
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <small class="text-muted" style="font-size: 0.75rem;"><?= date('M d, Y h:i A', strtotime($remark['created_at'])) ?></small>
+                                                        
+                                                        <!-- Delete Remark Form -->
+                                                        <form action="process/delete_customer_item.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this note?');" class="d-inline">
+                                                            <input type="hidden" name="type" value="remark">
+                                                            <input type="hidden" name="remark_id" value="<?= $remark['id'] ?>">
+                                                            <input type="hidden" name="booking_id" value="<?= $booking['id'] ?>">
+                                                            <button type="submit" class="btn btn-link text-danger p-0 border-0 ms-1" style="font-size: 0.85rem;" title="Delete note">
+                                                                <i class="bi bi-trash-fill"></i>
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                </div>
+                                                <p class="mb-0 small"><?= nl2br(htmlspecialchars($remark['remark'])) ?></p>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <p class="text-muted small fst-italic mb-3">No remarks recorded yet.</p>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- UPLOAD AND REMARKS SUBMISSION FORM -->
+                            <form action="process/update_customer_info.php" method="POST" enctype="multipart/form-data" class="col-12 g-3 row m-0 p-0">
+                                <input type="hidden" name="booking_id" value="<?= $booking['id'] ?>">
+
+                                <!-- UPLOAD DROPZONE -->
+                                <div class="col-12 p-0 mb-3">
+                                    <div class="upload-dropzone">
+                                        <input type="file" name="customer_photos[]" id="customer_photos" multiple accept="image/*,.pdf" onchange="updateFileLabel(this)">
+                                        <div class="upload-icon-box mx-auto">
+                                            <i class="bi bi-cloud-arrow-up-fill"></i>
+                                        </div>
+                                        <div class="upload-title" id="upload-title-text">Upload Primary ID / Photos</div>
+                                        <div class="upload-subtitle" id="upload-subtitle-text">JPG, PNG, or PDF (Multiple allowed)</div>
+                                    </div>
+                                </div>
+
+                                <div class="col-12 p-0">
+                                    <label class="small text-muted mb-1 fw-semibold">Add New Remark / Note</label>
+                                    <textarea name="new_remark" class="form-control form-control-custom" rows="3" placeholder="Type new remark or notes here..."></textarea>
+                                </div>
+
+                                <div class="col-12 text-end mt-3 p-0">
+                                    <button type="submit" class="btn btn-primary-yellow px-4 py-2 rounded-3">
+                                        <i class="bi bi-save me-1"></i> Save Customer Updates
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 </div>
 
                 <!-- SIDEBAR ACTION PANEL -->
                 <div class="col-lg-4">
-                    <!-- TOTAL PRICE DISPLAY -->
                     <div class="card-custom p-4 text-center mb-4">
                         <small class="text-uppercase tracking-wider fw-bold text-warning d-block mb-1" style="letter-spacing: 0.5px; font-size: 0.8rem;">Total Amount Due</small>
                         <h3 class="fw-bold mb-0">₱<?= number_format($booking['total_price'], 2) ?></h3>
                     </div>
 
-                    <!-- MANAGEMENT CONTROLS (OPERATOR / ADMIN ONLY) -->
                     <?php if($user_role !== 'user'): ?>
                     <div class="card-custom p-4 mb-3">
                         <h6 class="fw-bold mb-3 d-flex align-items-center">
@@ -398,13 +598,12 @@ $first_image = trim($images[0]);
                                 </select>
                             </div>
                             <button type="submit" class="btn btn-primary-yellow w-100 py-2 rounded-3">
-                                <i class="bi bi-check-circle-fill me-1"></i> Save Changes
+                                <i class="bi bi-check-circle-fill me-1"></i> Save Status
                             </button>
                         </form>
                     </div>
                     <?php endif; ?>
 
-                    <!-- PRINT INVOICE ACTION -->
                     <div>
                         <button onclick="window.print()" class="btn btn-secondary-custom w-100 py-2 rounded-3">
                             <i class="bi bi-printer me-2"></i> Print Invoice
@@ -417,3 +616,17 @@ $first_image = trim($images[0]);
         <?php require_once __DIR__ . '/../components/footer.php'; ?>
     </div>
 </div>
+
+<script>
+function updateFileLabel(input) {
+    const titleText = document.getElementById('upload-title-text');
+    const subtitleText = document.getElementById('upload-subtitle-text');
+    if (input.files && input.files.length > 0) {
+        titleText.innerText = `${input.files.length} File(s) Selected`;
+        subtitleText.innerText = Array.from(input.files).map(f => f.name).join(', ');
+    } else {
+        titleText.innerText = 'Upload Primary ID / Photos';
+        subtitleText.innerText = 'JPG, PNG, or PDF (Multiple allowed)';
+    }
+}
+</script>

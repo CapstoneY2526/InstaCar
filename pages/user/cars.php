@@ -906,6 +906,55 @@ if (file_exists($qr_file_path)) {
         color: #000000;
     }
 
+     .pickup-address-card {
+        background: #f8fafc;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        transition: all 0.2s ease;
+    }
+    
+    .pickup-address-card:hover {
+        background: #f1f5f9;
+        border-color: #ffcc00;
+    }
+    
+    .address-icon {
+        background: #fef9e7 !important;
+    }
+    
+    .address-icon i {
+        color: #b38a00 !important;
+    }
+    
+    .pickup-address-card a:hover {
+        color: #b38a00 !important;
+        text-decoration: underline !important;
+    }
+    
+    /* Dark mode */
+    body.dark-mode .pickup-address-card {
+        background: #1a1a1a;
+        border-color: #27272a;
+    }
+    
+    body.dark-mode .pickup-address-card:hover {
+        background: #222222;
+        border-color: #ffcc00;
+    }
+    
+    body.dark-mode .pickup-address-card .text-dark,
+    body.dark-mode .pickup-address-card .fw-bold {
+        color: #f1f5f9 !important;
+    }
+    
+    body.dark-mode .address-icon {
+        background: rgba(255, 204, 0, 0.15) !important;
+    }
+    
+    body.dark-mode .address-icon i {
+        color: #ffcc00 !important;
+    }
+
 </style>
 
 <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
@@ -1051,12 +1100,6 @@ if (file_exists($qr_file_path)) {
                                             </span>
                                         </div>
                                         
-                                        <div class="position-absolute top-0 start-0 m-3">
-                                            <span class="badge bg-dark border border-success px-3 py-2 rounded-pill shadow-sm d-inline-flex align-items-center">
-                                                <i class="bi bi-check-circle-fill me-1" style="color: #4ade80 !important;"></i>
-                                                <span style="color: #4ade80 !important; font-weight: 700;">Available</span>
-                                            </span>
-                                        </div>
                                     </div>
 
                                     <!-- Card Content Body -->
@@ -1330,7 +1373,28 @@ function resetFilters() {
                             <i class="bi bi-geo-alt-fill text-warning fs-5 flex-shrink-0 mt-1"></i>
                             <div>
                                 <div class="fw-bold extra-small text-uppercase tracking-wider opacity-75 mb-1">Pickup Address</div>
-                                <div class="fw-semibold small card-title-text fs-6">Pandac, Pavia, 5001 Iloilo</div>
+                                <div class="pickup-address-card p-2 p-sm-3 mb-3">
+                                    <div class="d-flex align-items-center gap-2 gap-sm-3">
+                                        <div class="address-icon bg-primary bg-opacity-10 rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px; flex-shrink: 0;">
+                                            <i class="bi bi-geo-alt-fill text-primary" style="font-size: 1.2rem;"></i>
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <div class="text-muted text-uppercase fw-semibold" style="font-size: 0.6rem; letter-spacing: 0.8px;">
+                                                <i class="bi bi-pin-map me-1"></i> PICKUP LOCATION
+                                            </div>
+                                            <div class="d-flex align-items-center flex-wrap gap-1 gap-sm-2">
+                                                <span class="fw-bold" style="font-size: 0.9rem;">Pandac, Pavia, 5001 Iloilo</span>
+                                                <a href="https://www.google.com/maps/place/Instacar+Car+Rental+Services/@10.7495626,122.5198576,17z/data=!3m1!4b1!4m6!3m5!1s0x33aefb4f8be44f49:0x930b22a3c6978b93!8m2!3d10.7495626!4d122.5198576!16s%2Fg%2F11vq394xy6?entry=ttu&g_ep=EgoyMDI2MDkwMi4wIKXMDSoASAFQAw%3D%3D" 
+                                                target="_blank" 
+                                                rel="noopener noreferrer"
+                                                class="text-decoration-none text-primary fw-semibold d-inline-flex align-items-center gap-1" 
+                                                style="font-size: 0.75rem;">
+                                                    <i class="bi bi-box-arrow-up-right"></i> Map
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
