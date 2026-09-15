@@ -493,6 +493,24 @@ require_once __DIR__ . '/../components/head.php';
     /* Dim cancelled bookings slightly so active ones stand out, but keep readable */
     .fc-event.status-cancelled { opacity: 0.85; }
 
+    /* Schedule blocks (maintenance, personal use, etc.) — purple */
+    .fc-event.status-schedule {
+        background-color: #8b5cf6 !important;
+        border-color: #8b5cf6 !important;
+        opacity: 0.85;
+    }
+    .fc-event.status-schedule .fc-event-title,
+    .fc-event.status-schedule .fc-event-main-frame,
+    .fc-event.status-schedule .fc-event-time {
+        color: #ffffff !important;
+    }
+
+    .fc-list-event.status-schedule .fc-list-event-dot { border-color: #8b5cf6 !important; }
+    .fc-list-event.status-schedule .status-chip { background: #8b5cf6; color: #fff; }
+
+    /* Legend swatch for schedule */
+    .legend-schedule { color: #8b5cf6; }
+
     /* List view dot bullet + time text should also carry the status color */
     .fc-list-event.status-pending .fc-list-event-dot { border-color: #f59e0b !important; }
     .fc-list-event.status-approved .fc-list-event-dot { border-color: #10b981 !important; }
@@ -658,7 +676,15 @@ require_once __DIR__ . '/../components/head.php';
                     <div>
                         <h3 class="fw-bold mb-0 text-dark">Booking Schedule</h3>
                         <p class="text-muted mb-0 small">
-                            <?= ($user_role === 'admin') ? "Full fleet overview." : "Your assigned vehicle bookings." ?>
+                            <?php
+                                if ($user_role === 'admin') {
+                                    echo "Full fleet overview.";
+                                } elseif ($user_role === 'staff') {
+                                    echo "Bookings at your branch.";
+                                } else {
+                                    echo "Your assigned vehicle bookings.";
+                                }
+                            ?>
                         </p>
                     </div>
                     <div class="d-flex gap-2">
@@ -670,11 +696,12 @@ require_once __DIR__ . '/../components/head.php';
 
                 <div class="calendar-card mb-5">
                     <div class="d-flex justify-content-center gap-2 mb-3 flex-wrap">
-                        <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #f59e0b;">● Pending</small>
-                        <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #10b981;">● Approved</small>
-                        <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #3b82f6;">● Completed</small>
-                        <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #ef4444;">● Cancelled</small>
-                    </div>
+                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #f59e0b;">● Pending</small>
+                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #10b981;">● Approved</small>
+                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #3b82f6;">● Completed</small>
+                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #ef4444;">● Cancelled</small>
+                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #8b5cf6;">● Schedule Block</small>
+                </div>
 
                     <div id="calendar"></div>
                 </div>
@@ -711,8 +738,9 @@ document.addEventListener('DOMContentLoaded', function() {
     var userId = '<?= $user_id ?>';
 
     function redirectToDetails(eventId) {
-        const detailPage = (userRole === 'operator') ? 'my_booking_details.php' : 'booking_details.php';
-        window.location.href = detailPage + "?id=" + eventId;
+        // Operators and everyone else use the same detail page — booking_details.php
+        // already scopes what each role can see.
+        window.location.href = 'booking_details.php?id=' + eventId;
     }
 
     function toLocalIsoString(date) {
@@ -740,7 +768,6 @@ document.addEventListener('DOMContentLoaded', function() {
         dayMaxEvents: 4,
         moreLinkClick: "popover", 
         events: function(fetchInfo, successCallback, failureCallback) {
-            // Build the URL with user_id filter for operators
             let url = 'process/fetch_bookings.php';
             if (userRole === 'operator') {
                 url += '?user_id=' + userId;
@@ -762,12 +789,18 @@ document.addEventListener('DOMContentLoaded', function() {
         eventOrder: '-duration,start',
 
         eventClassNames: function(arg) {
-            const status = (arg.event.extendedProps.status || '').toLowerCase();
+            const props = arg.event.extendedProps || {};
+            if (props.type === 'schedule') {
+                return ['status-schedule'];
+            }
+            const status = (props.status || '').toLowerCase();
             return status ? ['status-' + status] : [];
         },
 
         eventContent: function(arg) {
             const props = arg.event.extendedProps || {};
+            const isSchedule = props.type === 'schedule';
+
             const model = props.model || 'Vehicle';
             const color = props.color || 'N/A';
             const status = props.status || '';
@@ -778,19 +811,24 @@ document.addEventListener('DOMContentLoaded', function() {
             const isStartSegment = arg.isStart;
             const isEndSegment   = arg.isEnd;
 
-            const releaseTime = formatToMilitaryTime(rawStart);
-            const returnTime  = formatToMilitaryTime(rawEnd);
-
             let timeStr = '';
 
-            if (isStartSegment && isEndSegment) {
-                timeStr = `${releaseTime} - ${returnTime}`;
-            } else if (isStartSegment) {
-                timeStr = `${releaseTime} - 00:00`;
-            } else if (isEndSegment) {
-                timeStr = `00:00 - ${returnTime}`;
+            if (isSchedule) {
+                // Schedule blocks are whole-day — show a synthetic all-day time range
+                timeStr = '00:00 - 00:00 (All-Day)';
             } else {
-                timeStr = `00:00 - 00:00`;
+                const releaseTime = formatToMilitaryTime(rawStart);
+                const returnTime  = formatToMilitaryTime(rawEnd);
+
+                if (isStartSegment && isEndSegment) {
+                    timeStr = `${releaseTime} - ${returnTime}`;
+                } else if (isStartSegment) {
+                    timeStr = `${releaseTime} - 00:00`;
+                } else if (isEndSegment) {
+                    timeStr = `00:00 - ${returnTime}`;
+                } else {
+                    timeStr = `00:00 - 00:00`;
+                }
             }
 
             let customEl = document.createElement('div');
@@ -874,7 +912,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 const startTimeMil = formatToMilitaryTime(start) || '00:00';
                 const endTimeMil = formatToMilitaryTime(end) || '00:00';
 
-                if (startIsoStr === endIsoStr) {
+                if (props.type === 'schedule') {
+                    actionLabel = '🚧 ' + (props.reason || 'Blocked');
+                    actionBadgeClass = 'bg-secondary bg-opacity-10 text-secondary';
+                    timeRangeDisplay = '00:00 - 00:00 (All-Day)';
+                } else if (startIsoStr === endIsoStr) {
                     actionLabel = 'Same-Day Rental';
                     actionBadgeClass = 'bg-dark text-white';
                     timeRangeDisplay = `${startTimeMil} - ${endTimeMil}`;
@@ -903,6 +945,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
                 const statusColor = colors[props.status] || '#64748b';
 
+                // Build a date range label ("Sep 12" or "Sep 12 → Sep 15")
+                const startDateLabel = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const endDateLabel   = end.toLocaleDateString('en-US',   { month: 'short', day: 'numeric' });
+                const sameDay        = (startIsoStr === endIsoStr);
+                const dateRangeLabel = sameDay
+                    ? startDateLabel
+                    : `${startDateLabel} → ${endDateLabel}`;
+
                 const itemDiv = document.createElement('div');
                 itemDiv.className = "card border-0 bg-light p-3 rounded-3 mb-2 shadow-sm text-start agenda-item-card";
                 itemDiv.style.cursor = "pointer";
@@ -912,17 +962,23 @@ document.addEventListener('DOMContentLoaded', function() {
                             <span class="timeline-indicator-badge ${actionBadgeClass} d-inline-block mb-1">${actionLabel}</span>
                             <h6 class="fw-bold mb-0 text-dark" style="font-size: 0.9rem;">${model} • ${color}</h6>
                             <small class="text-muted d-block">${evt.title}</small>
+                            <div class="text-muted small mt-1" style="font-size: 11px;">
+                                <i class="bi bi-calendar3 me-1"></i> ${dateRangeLabel}
+                            </div>
                             <div class="text-dark small mt-1 fw-bold"><i class="bi bi-clock me-1"></i> ${timeRangeDisplay}</div>
                         </div>
                         <span class="badge rounded-pill" style="background-color: ${statusColor}; font-size: 10px;">${props.status}</span>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top border-light">
                         <small class="text-muted fw-semibold">ID: #${evt.id}</small>
-                        <span class="text-primary fw-bold" style="font-size: 11px;">View details →</span>
+                        ${props.type === 'schedule'
+                            ? '<span class="text-muted fw-bold" style="font-size: 11px;">Blocked period</span>'
+                            : '<span class="text-primary fw-bold" style="font-size: 11px;">View details →</span>'}
                     </div>
                 `;
 
                 itemDiv.addEventListener('click', function() {
+                    if (props.type === 'schedule') return; // schedules have no detail page
                     dailyAgendaModal.hide(); 
                     redirectToDetails(evt.id);
                 });
@@ -934,7 +990,36 @@ document.addEventListener('DOMContentLoaded', function() {
         },
 
         eventClick: function(info) {
-            info.jsEvent.preventDefault(); 
+            info.jsEvent.preventDefault();
+            
+            const props = info.event.extendedProps || {};
+            if (props.type === 'schedule') {
+                const dayDate = new Date(info.event.start);
+                const formattedDate = dayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                document.getElementById('agendaModalDateTitle').innerText = formattedDate;
+                
+                const container = document.getElementById('agendaModalContainer');
+                container.innerHTML = `
+                    <div class="card border-0 bg-light p-3 rounded-3 mb-2 shadow-sm agenda-item-card">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <span class="timeline-indicator-badge bg-secondary bg-opacity-10 text-secondary d-inline-block mb-1">🚧 Schedule Block</span>
+                                <h6 class="fw-bold mb-0 text-dark" style="font-size: 0.9rem;">
+                                    ${props.brand || 'Vehicle'} • ${props.color || 'N/A'}
+                                </h6>
+                                <div class="text-dark small mt-1 fw-bold">
+                                    <i class="bi bi-tag me-1"></i> ${props.reason || 'Unavailable'}
+                                </div>
+                                ${props.notes ? `<div class="text-muted small mt-1">${props.notes}</div>` : ''}
+                                ${props.created_by ? `<div class="text-muted small mt-1"><i class="bi bi-person-badge me-1"></i>Created by ${props.created_by}</div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                new bootstrap.Modal(document.getElementById('dailyAgendaModal')).show();
+                return;
+            }
+            
             redirectToDetails(info.event.id);
         }
     });

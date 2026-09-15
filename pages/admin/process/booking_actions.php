@@ -5,11 +5,23 @@ error_reporting(E_ALL);
 session_start();
 require_once __DIR__ . '/../../../config/database.php';
 require_once __DIR__ . '/../../../config/send_email.php';
+require_once __DIR__ . '/../../../config/branch_helper.php';
 
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'staff'])) {
     $_SESSION['error'] = "Unauthorized access.";
     echo "<script>window.stop(); window.location.href='../../index.php';</script>";
     exit();
+}
+
+// Who is performing the current action
+$current_actor_id = (int)$_SESSION['user_id'];
+
+// Helper: where to send the user back after an action
+function redirectBack($source = 'online') {
+    if ($_SESSION['role'] === 'staff') {
+       return ($source === 'manual') ? '../../staff/bookings_manual.php' : '../../staff/bookings.php';
+    }
+    return ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
 }
 
 function calculatePriceByHours($hours, $p10, $p12, $p24, $ext1_6, $ext7_10, $ext11_12, $ext13_24) {
@@ -63,27 +75,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['booking_id']) && !is
     $pickup_time = mysqli_real_escape_string($conn, $_POST['pickup_time']);
     $return_time = mysqli_real_escape_string($conn, $_POST['return_time']);
     
-    // Normalize HH:MM to HH:MM:SS
     if (strlen($pickup_time) === 5) $pickup_time .= ':00';
     if (strlen($return_time) === 5) $return_time .= ':00';
 
     $total_price  = floatval($_POST['total_price'] ?? 0);
     $down_payment = floatval($_POST['down_payment'] ?? 0);
 
-    // Fetch existing booking
     $old_res = mysqli_query($conn, "SELECT car_id, primary_id_path, secondary_id_path, proof_billing_path, proof_payment_path FROM bookings WHERE id = $booking_id");
     $old_booking = mysqli_fetch_assoc($old_res);
 
     if (!$old_booking) {
         $_SESSION['error'] = "Booking record not found.";
-        $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+        $redirect = redirectBack($source);
         header("Location: $redirect?filter=$filter");
         exit();
     }
 
     $car_id = intval($old_booking['car_id']);
 
-    // Check availability overlaps (excluding current booking)
     $check_conflict_sql = "SELECT id FROM bookings 
                            WHERE car_id = $car_id 
                            AND id != $booking_id
@@ -93,12 +102,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['booking_id']) && !is
     $conflict_res = mysqli_query($conn, $check_conflict_sql);
     if (mysqli_num_rows($conflict_res) > 0) {
         $_SESSION['error'] = "❌ This vehicle is already booked or unavailable during selected dates.";
-        $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+        $redirect = redirectBack($source);
         header("Location: $redirect?filter=$filter");
         exit();
     }
 
-    // Determine target upload directory
     $primary_id_path    = $old_booking['primary_id_path'];
     $secondary_id_path  = $old_booking['secondary_id_path'];
     $proof_billing_path = $old_booking['proof_billing_path'];
@@ -119,7 +127,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['booking_id']) && !is
         mkdir($customer_upload_dir, 0775, true);
     }
 
-    // Process File Uploads
     $file_keys = [
         'primary_id'       => &$primary_id_path,
         'secondary_id'     => &$secondary_id_path,
@@ -149,7 +156,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['booking_id']) && !is
                     primary_id_path = '$primary_id_path',
                     secondary_id_path = '$secondary_id_path',
                     proof_billing_path = '$proof_billing_path',
-                    proof_payment_path = '$proof_payment_path'
+                    proof_payment_path = '$proof_payment_path',
+                    last_action_by = $current_actor_id,
+                    last_action_at = NOW(),
+                    last_action_type = 'Edited'
                    WHERE id = $booking_id";
 
     if (mysqli_query($conn, $update_sql)) {
@@ -158,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['booking_id']) && !is
         $_SESSION['error'] = "Failed to update reservation: " . mysqli_error($conn);
     }
 
-    $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+    $redirect = redirectBack($source);
     header("Location: $redirect?filter=$filter");
     exit();
 }
@@ -174,7 +184,7 @@ if (isset($_GET['id'], $_GET['status'])) {
     
     if (!in_array($new_status, $valid_statuses)) {
         $_SESSION['error'] = "Invalid status: $new_status";
-        $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+        $redirect = redirectBack($source);
         header("Location: $redirect?filter=$filter");
         exit();
     }
@@ -191,7 +201,7 @@ if (isset($_GET['id'], $_GET['status'])) {
         
         if (!$booking) {
             $_SESSION['error'] = "Booking not found.";
-            $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+            $redirect = redirectBack($source);
             header("Location: $redirect?filter=$filter");
             exit();
         }
@@ -223,7 +233,10 @@ if (isset($_GET['id'], $_GET['status'])) {
                         SET status = 'Completed',
                             extension_hours = $extension_hours,
                             extension_price = $additional_fee,
-                            total_price = $new_total
+                            total_price = $new_total,
+                            last_action_by = $current_actor_id,
+                            last_action_at = NOW(),
+                            last_action_type = 'Completed'
                         WHERE id = $booking_id";
             
             if (mysqli_query($conn, $update_sql)) {
@@ -240,17 +253,21 @@ if (isset($_GET['id'], $_GET['status'])) {
                                         💵 Additional Fee: ₱" . number_format($additional_fee, 2) . "<br>
                                         <strong>💰 NEW TOTAL: ₱" . number_format($new_total, 2) . "</strong>";
                 
-                $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+                $redirect = redirectBack($source);
                 header("Location: $redirect?filter=$filter");
                 exit();
             } else {
                 $_SESSION['error'] = "Failed to update booking: " . mysqli_error($conn);
-                $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+                $redirect = redirectBack($source);
                 header("Location: $redirect?filter=$filter");
                 exit();
             }
         } else {
-            $update_sql = "UPDATE bookings SET status = 'Completed' WHERE id = $booking_id";
+            $update_sql = "UPDATE bookings SET status = 'Completed',
+                            last_action_by = $current_actor_id,
+                            last_action_at = NOW(),
+                            last_action_type = 'Completed'
+                           WHERE id = $booking_id";
             
             if (mysqli_query($conn, $update_sql)) {
                 mysqli_query($conn, "UPDATE cars SET status = 'Available' WHERE id = " . $booking['car_id']);
@@ -301,14 +318,18 @@ if (isset($_GET['id'], $_GET['status'])) {
                 $_SESSION['error'] = "Failed to update booking: " . mysqli_error($conn);
             }
 
-            $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+            $redirect = redirectBack($source);
             header("Location: $redirect?filter=$filter");
             exit();
         }
     }
 
     if ($new_status === 'Confirmed') {
-        mysqli_query($conn, "UPDATE bookings SET status = 'Confirmed' WHERE id = $booking_id");
+        mysqli_query($conn, "UPDATE bookings SET status = 'Confirmed',
+                             last_action_by = $current_actor_id,
+                             last_action_at = NOW(),
+                             last_action_type = 'Confirmed'
+                             WHERE id = $booking_id");
         mysqli_query($conn, "UPDATE cars SET status = 'Active' WHERE id = (SELECT car_id FROM bookings WHERE id = $booking_id)");
 
         $query = mysqli_query($conn, "SELECT b.guest_name, b.gmail AS booking_gmail, u.name AS user_name, u.email AS user_email 
@@ -353,7 +374,11 @@ if (isset($_GET['id'], $_GET['status'])) {
         }
 
     } elseif ($new_status === 'Cancelled') {
-        mysqli_query($conn, "UPDATE bookings SET status = 'Cancelled', total_price = 500 WHERE id = $booking_id");
+        mysqli_query($conn, "UPDATE bookings SET status = 'Cancelled', total_price = 500,
+                             last_action_by = $current_actor_id,
+                             last_action_at = NOW(),
+                             last_action_type = 'Cancelled'
+                             WHERE id = $booking_id");
         mysqli_query($conn, "UPDATE cars SET status = 'Available' WHERE id = (SELECT car_id FROM bookings WHERE id = $booking_id)");
 
         $query = mysqli_query($conn, "SELECT b.guest_name, b.gmail AS booking_gmail, u.name AS user_name, u.email AS user_email 
@@ -398,7 +423,7 @@ if (isset($_GET['id'], $_GET['status'])) {
         }
     }
 
-    $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+    $redirect = redirectBack($source);
     header("Location: $redirect?filter=$filter");
     exit();
 }
@@ -414,6 +439,14 @@ if (isset($_POST['add_manual_booking'])) {
     $discount_price = floatval($_POST['discount_price'] ?? 0);
     $down_payment   = floatval($_POST['down_payment'] ?? 0);
     
+    // Fields captured from the modal (prefill data for later settlement)
+    $delivery_fee = floatval($_POST['delivery_fee'] ?? 0);
+    $pickup_fee   = floatval($_POST['pickup_fee'] ?? 0);
+    $remarks      = mysqli_real_escape_string($conn, $_POST['remarks'] ?? '');
+
+    // Who created this booking (admin or staff)
+    $created_by = intval($_SESSION['user_id']);
+
     $check_conflict_sql = "SELECT id FROM bookings 
                            WHERE car_id = $car_id 
                            AND status NOT IN ('Cancelled', 'Completed')
@@ -422,7 +455,7 @@ if (isset($_POST['add_manual_booking'])) {
     $conflict_res = mysqli_query($conn, $check_conflict_sql);
     if (mysqli_num_rows($conflict_res) > 0) {
         $_SESSION['error'] = "❌ This vehicle is already booked or unavailable during your selected time slot.";
-        echo "<script>window.location.href='../bookings_manual.php';</script>";
+        echo "<script>window.location.href='" . redirectBack('manual') . "';</script>";
         exit();
     }
 
@@ -434,7 +467,8 @@ if (isset($_POST['add_manual_booking'])) {
     $car_result = mysqli_query($conn, $car_sql);
     $car = mysqli_fetch_assoc($car_result);
     
-    $total_price = calculatePriceByHours($hours, $car['price_10_hours'], $car['price_12_hours'], $car['price_24_hours'], $car['ext_price_1_6'], $car['ext_price_7_10'], $car['ext_price_11_12'], $car['ext_price_13_24']);
+    $calculated_base = calculatePriceByHours($hours, $car['price_10_hours'], $car['price_12_hours'], $car['price_24_hours'], $car['ext_price_1_6'], $car['ext_price_7_10'], $car['ext_price_11_12'], $car['ext_price_13_24']);
+    $total_price = $calculated_base;
     
     $status       = 'Confirmed';
     $booking_type = 'manual';
@@ -482,7 +516,7 @@ if (isset($_POST['add_manual_booking'])) {
             $primary_id_path = $customer_folder . '/' . $filename;
         } else {
             $_SESSION['error'] = "Failed to upload Primary ID. Check folder permissions.";
-            echo "<script>window.location.href='../bookings_manual.php';</script>";
+            echo "<script>window.location.href='" . redirectBack('manual') . "';</script>";
             exit();
         }
     }
@@ -494,7 +528,7 @@ if (isset($_POST['add_manual_booking'])) {
             $secondary_id_path = $customer_folder . '/' . $filename;
         } else {
             $_SESSION['error'] = "Failed to upload Secondary ID. Check folder permissions.";
-            echo "<script>window.location.href='../bookings_manual.php';</script>";
+            echo "<script>window.location.href='" . redirectBack('manual') . "';</script>";
             exit();
         }
     }
@@ -506,7 +540,7 @@ if (isset($_POST['add_manual_booking'])) {
             $proof_billing_path = $customer_folder . '/' . $filename;
         } else {
             $_SESSION['error'] = "Failed to upload Proof of Billing. Check folder permissions.";
-            echo "<script>window.location.href='../bookings_manual.php';</script>";
+            echo "<script>window.location.href='" . redirectBack('manual') . "';</script>";
             exit();
         }
     }
@@ -515,30 +549,50 @@ if (isset($_POST['add_manual_booking'])) {
     $guest_email_sql = !empty($guest_email) ? "'" . mysqli_real_escape_string($conn, $guest_email) . "'" : "NULL";
     $guest_phone_sql = !empty($guest_phone) ? "'" . mysqli_real_escape_string($conn, $guest_phone) . "'" : "NULL";
 
+    // Resolve branch: posted value wins; otherwise fall back to actor's current branch.
+    // Admins on "All Branches" get NULL (currentBranchId() returns null).
+    $posted_branch = $_POST['branch_id'] ?? '';
+    if (($posted_branch === '' || $posted_branch === '0') && currentBranchId() !== null) {
+        $posted_branch = currentBranchId();
+    }
+    $branch_id = ($posted_branch === '' || $posted_branch === '0' || $posted_branch === null)
+        ? 'NULL'
+        : intval($posted_branch);
+
+    // Insert into bookings with delivery_fee, pickup_fee, remarks, created_by, AND last action
+    // NOTE: No booking_payments row is created here. It will be created at settlement time.
     $insert_sql = "INSERT INTO bookings (
-                        user_id, guest_name, gmail, phone_number,
+                        user_id, created_by, last_action_by, last_action_at, last_action_type,
+                        branch_id,
+                        guest_name, gmail, phone_number,
                         primary_id_path, secondary_id_path, proof_billing_path,
                         car_id, start_date, end_date,
                         pickup_time, return_time,
                         total_price, discount_price, down_payment,
+                        delivery_fee, pickup_fee, remarks,
                         status, booking_type
                    ) VALUES (
-                        $user_id, $guest_name_sql, $guest_email_sql, $guest_phone_sql,
+                        $user_id, $created_by, $current_actor_id, NOW(), 'Confirmed',
+                        $branch_id,
+                        $guest_name_sql, $guest_email_sql, $guest_phone_sql,
                         '$primary_id_path', '$secondary_id_path', '$proof_billing_path',
                         $car_id, '$start_date', '$end_date',
                         '$pickup_time', '$return_time',
                         $total_price, $discount_price, $down_payment,
+                        $delivery_fee, $pickup_fee, '$remarks',
                         '$status', '$booking_type'
                    )";
 
     if (mysqli_query($conn, $insert_sql)) {
+        $booking_id = mysqli_insert_id($conn);
         mysqli_query($conn, "UPDATE cars SET status = 'Active' WHERE id = $car_id");
+        
         $_SESSION['success'] = "Walk-in booking confirmed successfully. Total: ₱" . number_format($total_price, 2);
     } else {
         $_SESSION['error'] = "Database error: " . mysqli_error($conn);
     }
 
-    echo "<script>window.location.href='../bookings_manual.php';</script>";
+    echo "<script>window.location.href='" . redirectBack('manual') . "';</script>";
     exit();
 }
 
@@ -552,12 +606,17 @@ if (isset($_POST['update_booking'])) {
     $discount_price = floatval($_POST['discount_price'] ?? 0);
     $down_payment   = floatval($_POST['down_payment'] ?? 0);
     
+    // Fields captured from the Edit modal
+    $delivery_fee = floatval($_POST['delivery_fee'] ?? 0);
+    $pickup_fee   = floatval($_POST['pickup_fee'] ?? 0);
+    $remarks      = mysqli_real_escape_string($conn, $_POST['remarks'] ?? '');
+    
     $pickup_dt = new DateTime($_POST['pickup_datetime']);
     $return_dt = new DateTime($_POST['return_datetime']);
     
     if ($return_dt <= $pickup_dt) {
         $_SESSION['error'] = "Return date/time must be after pickup date/time!";
-        $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+        $redirect = redirectBack($source);
         header("Location: $redirect?filter=$filter");
         exit();
     }
@@ -576,7 +635,7 @@ if (isset($_POST['update_booking'])) {
     $conflict_res = mysqli_query($conn, $check_conflict_sql);
     if (mysqli_num_rows($conflict_res) > 0) {
         $_SESSION['error'] = "❌ This vehicle is already booked or unavailable during your selected time slot.";
-        $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+        $redirect = redirectBack($source);
         header("Location: $redirect?filter=$filter");
         exit();
     }
@@ -587,7 +646,7 @@ if (isset($_POST['update_booking'])) {
     
     if (!$old_booking) {
         $_SESSION['error'] = "Booking tracking log missing!";
-        $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+        $redirect = redirectBack($source);
         header("Location: $redirect?filter=$filter");
         exit();
     }
@@ -674,7 +733,13 @@ if (isset($_POST['update_booking'])) {
                        return_time = '$return_time',
                        discount_price = $discount_price,
                        down_payment = $down_payment,
-                       total_price = $new_total_price
+                       delivery_fee = $delivery_fee,
+                       pickup_fee = $pickup_fee,
+                       remarks = '$remarks',
+                       total_price = $new_total_price,
+                       last_action_by = $current_actor_id,
+                       last_action_at = NOW(),
+                       last_action_type = 'Edited'
                    WHERE id = $booking_id";
     
     if (mysqli_query($conn, $update_sql)) {
@@ -687,7 +752,7 @@ if (isset($_POST['update_booking'])) {
         $_SESSION['error'] = "Failed to update booking: " . mysqli_error($conn);
     }
     
-    $redirect = ($source === 'manual') ? '../bookings_manual.php' : '../bookings_online.php';
+    $redirect = redirectBack($source);
     header("Location: $redirect?filter=$filter");
     exit();
 }

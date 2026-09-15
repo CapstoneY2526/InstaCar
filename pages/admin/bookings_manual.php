@@ -4,6 +4,7 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 session_start();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../config/branch_helper.php';
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     $_SESSION['error'] = "Access denied.";
@@ -41,18 +42,25 @@ $statsQuery = "SELECT
     SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed,
     SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) as cancelled
 FROM bookings 
-WHERE booking_type = 'manual'";
+WHERE booking_type = 'manual'" . branchScopeSql();
 
 $statsResult = mysqli_query($conn, $statsQuery);
 $stats = mysqli_fetch_assoc($statsResult);
 
 // Fetch Bookings with Filter
 $bookings = [];
-$query = "SELECT b.*, u.name as member_name, c.brand, c.model, c.plate_number 
+$query = "SELECT b.*, 
+                 u.name as member_name, 
+                 c.brand, c.model, c.plate_number,
+                 s.name as staff_name,
+                 a.name as action_by_name,
+                 a.role as action_by_role
           FROM bookings b 
           LEFT JOIN users u ON b.user_id = u.id 
+          LEFT JOIN users s ON b.created_by = s.id
+          LEFT JOIN users a ON b.last_action_by = a.id
           JOIN cars c ON b.car_id = c.id 
-          WHERE b.booking_type = 'manual'";
+          WHERE b.booking_type = 'manual'" . branchScopeSql('b.branch_id');
 
 if ($filter !== 'All') {
     $safe_filter = mysqli_real_escape_string($conn, $filter);
@@ -67,6 +75,20 @@ if ($res) {
     }
 }
 
+// Helper: format relative time (for the Audit column)
+if (!function_exists('formatRelativeTime')) {
+    function formatRelativeTime($timestamp) {
+        if (!$timestamp) return '';
+        $ts = strtotime($timestamp);
+        $diff = time() - $ts;
+        if ($diff < 60)          return 'just now';
+        if ($diff < 3600)        return floor($diff / 60) . 'm ago';
+        if ($diff < 86400)       return floor($diff / 3600) . 'h ago';
+        if ($diff < 604800)      return floor($diff / 86400) . 'd ago';
+        return date('M j, Y', $ts);
+    }
+}
+
 // Fetch Cars with active reservation timelines
 $available_cars = [];
 $carQuery = "
@@ -74,6 +96,7 @@ $carQuery = "
            GROUP_CONCAT(CONCAT(b.start_date, ' ', b.pickup_time, '|', b.end_date, ' ', b.return_time)) AS busy_slots
     FROM cars c
     LEFT JOIN bookings b ON c.id = b.car_id AND b.status NOT IN ('Cancelled', 'Completed')
+    WHERE 1=1" . branchScopeSql('c.branch_id') . "
     GROUP BY c.id 
     ORDER BY c.brand ASC, c.model ASC
 ";
@@ -88,6 +111,8 @@ if ($carRes) {
 <?php require_once __DIR__ . '/../components/head.php'; ?>
 
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="../../public/assets/css/booking-modal.css">
 
 <style>
     /* ========================================================
@@ -111,7 +136,6 @@ if ($carRes) {
 
     * { box-sizing: border-box; }
     
-    /* Prevent double scrollbars at root level */
     html, body {
         width: 100%;
         max-width: 100%;
@@ -132,7 +156,6 @@ if ($carRes) {
         overflow-x: hidden;
     }
 
-    /* Header & Action Bar Accent */
     .header-title-wrapper {
         padding-bottom: 1.25rem;
         border-bottom: 2px solid var(--brand-yellow-soft);
@@ -162,7 +185,6 @@ if ($carRes) {
     .text-brand-yellow { color: #b38a00 !important; }
     .bg-brand-yellow { background: var(--brand-yellow-soft) !important; }
 
-    /* Unified Stat Cards */
     .stat-card {
         background: #ffffff;
         border-radius: var(--card-radius);
@@ -206,7 +228,6 @@ if ($carRes) {
         margin-top: 2px;
     }
 
-    /* Navigation Status Pills */
     .nav-status-pills {
         background: #ffffff;
         padding: 6px;
@@ -232,7 +253,6 @@ if ($carRes) {
         font-weight: 700;
     }
 
-    /* Control Bar & Search Mechanics */
     .custom-control-bar {
         border: 1px solid var(--brand-border) !important;
         border-radius: var(--card-radius) !important;
@@ -273,7 +293,6 @@ if ($carRes) {
         box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.2) !important;
     }
 
-    /* Dark Limit Select Dropdown Mechanics */
     .entry-limiter-select {
         height: 40px;
         padding: 6px 32px 6px 12px;
@@ -294,7 +313,6 @@ if ($carRes) {
         color: #ffffff !important;
     }
 
-    /* Duration Quick Toggle Buttons */
     .duration-buttons {
         display: flex;
         gap: 8px;
@@ -320,7 +338,6 @@ if ($carRes) {
         font-weight: 700;
     }
 
-    /* Table & Status Formatting */
     .table-card {
         border-radius: var(--card-radius);
         border: 1px solid var(--brand-border);
@@ -334,8 +351,8 @@ if ($carRes) {
 
     .desktop-table-wrapper .table-responsive,
     .table-responsive {
-        overflow-x: auto !important;
-        overflow-y: visible !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;   /* was: visible */
         -webkit-overflow-scrolling: touch;
     }
 
@@ -386,7 +403,6 @@ if ($carRes) {
         z-index: 1050 !important;
     }
 
-    /* Customer identity avatar */
     .customer-avatar {
         width: 34px;
         height: 34px;
@@ -430,7 +446,6 @@ if ($carRes) {
     .status-completed { background: #dcfce7; color: #15803d; }
     .status-cancelled { background: #fee2e2; color: #b91c1c; }
 
-    /* Mobile Booking Cards Container */
     .mobile-cards-wrapper {
         display: flex;
         flex-direction: column;
@@ -450,11 +465,10 @@ if ($carRes) {
         flex-direction: column;
         gap: 0.75rem;
         width: 100%;
-        position: relative; /* Context parent for absolute dropdown placement */
-        overflow: visible !important; /* Prevents nested dropdown clipping */
+        position: relative;
+        overflow: visible !important;
     }
 
-    /* Fix Dropdown Clippings & Off-screen Overflows on Mobile Cards */
     .mobile-booking-card .dropdown {
         position: relative;
     }
@@ -467,7 +481,6 @@ if ($carRes) {
         z-index: 1050 !important;
     }
 
-    /* Modal Layering & Layout */
     .modal {
         z-index: 1060 !important;
     }
@@ -529,7 +542,6 @@ if ($carRes) {
         outline: none;
     }
 
-    /* Dropzone Base */
     #dropzoneContainer,
     [id^="editDropzoneContainer"] {
         background-color: #fafafa;
@@ -546,18 +558,8 @@ if ($carRes) {
         background-color: var(--brand-yellow-soft);
     }
 
-    /* Native File Input Styling */
     input[type="file"] {
         font-size: 0.825rem;
-    }
-
-    /* Dynamic Pricing Box Utilities (Light & Dark Ready) */
-    .pricing-summary-box,
-    .price-breakdown-card {
-        background-color: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 1rem;
     }
 
     .price-info-alert,
@@ -590,57 +592,6 @@ if ($carRes) {
         font-size: 0.8rem;
     }
 
-    /* Active Selector Pill Component */
-    .user-status-card,
-    .status-dropdown-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.625rem;
-        background-color: #ffffff;
-        border: 1px solid var(--brand-border);
-        border-radius: 14px;
-        padding: 0.4rem 0.75rem 0.4rem 0.4rem;
-        max-width: 100%;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .user-status-card:hover,
-    .status-dropdown-btn:hover {
-        border-color: var(--brand-yellow);
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    }
-
-    .user-status-card .avatar-icon,
-    .status-dropdown-btn .avatar-icon {
-        width: 34px;
-        height: 34px;
-        background-color: var(--brand-yellow);
-        color: #000000;
-        font-weight: 800;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        font-size: 0.9rem;
-    }
-
-    .user-status-card .status-text,
-    .status-dropdown-btn .status-text {
-        font-size: 0.75rem;
-        font-weight: 800;
-        letter-spacing: 0.5px;
-        color: #b38a00;
-        text-transform: uppercase;
-    }
-
-    /* ========================================================
-       DEVICE RESPONSIVENESS & BREAKPOINT FIXES
-       ======================================================== */
-
-    /* Desktop View (Laptops & Large Displays: 992px+) */
     @media (min-width: 992px) {
         .mobile-cards-wrapper {
             display: none !important;
@@ -650,14 +601,8 @@ if ($carRes) {
         .desktop-table-card {
             display: block !important;
         }
-
-        .user-status-card,
-        .status-dropdown-btn {
-            min-width: 140px;
-        }
     }
 
-    /* Tablet View (Mid-range Devices: 576px to 991.98px) */
     @media (min-width: 576px) and (max-width: 991.98px) {
         .mobile-cards-wrapper {
             display: flex !important;
@@ -673,11 +618,6 @@ if ($carRes) {
             padding: 0.875rem 1rem !important;
         }
 
-        .user-status-card,
-        .status-dropdown-btn {
-            min-width: 130px;
-        }
-
         .custom-control-bar .card-body {
             gap: 1rem;
         }
@@ -687,7 +627,6 @@ if ($carRes) {
         }
     }
 
-    /* Mobile Phone View (< 575.98px) */
     @media (max-width: 575.98px) {
         .desktop-table-wrapper,
         .desktop-table-card {
@@ -710,7 +649,6 @@ if ($carRes) {
             padding: 1rem 0.5rem !important;
         }
 
-        /* Mobile Header and Floating Controls */
         header, .navbar, .header-title-wrapper {
             display: flex;
             flex-wrap: wrap;
@@ -764,7 +702,6 @@ if ($carRes) {
             white-space: nowrap !important;
         }
 
-        /* Prevent Text Squishing & Prevent Horizontal Scroll Overflows */
         .mobile-booking-card {
             padding: 1rem !important;
             overflow-wrap: break-word;
@@ -781,7 +718,6 @@ if ($carRes) {
             align-self: flex-start;
         }
 
-        /* Action Buttons Grid on Mobile */
         .mobile-booking-card .action-buttons-group,
         .mobile-booking-card .btn-group {
             display: flex;
@@ -808,14 +744,6 @@ if ($carRes) {
             padding: 1rem !important;
         }
 
-        .modal-header .modal-icon-badge {
-            width: 38px;
-            height: 38px;
-            font-size: 1rem;
-        }
-
-        .modal-title-text { font-size: 1rem; }
-
         .modal-body {
             padding: 1rem !important;
         }
@@ -825,20 +753,6 @@ if ($carRes) {
         .modal-body .alert-info {
             padding: 0.75rem !important;
             font-size: 0.8125rem !important;
-        }
-
-        .user-status-card,
-        .status-dropdown-btn {
-            width: 100%;
-            padding: 0.5rem 0.75rem 0.5rem 0.5rem;
-        }
-
-        /* Custom Date Badge Fixes */
-        .schedule-badge, .schedule-pill {
-            white-space: normal !important;
-            line-height: 1.3;
-            padding: 0.5rem;
-            font-size: 0.8rem;
         }
     }
 
@@ -869,11 +783,7 @@ if ($carRes) {
         color: #cbd5e1 !important;
     }
 
-    /* Fix Light Containers in Dark Mode */
-    body.dark-mode .bg-light,
-    body.dark-mode .pricing-summary-box,
-    body.dark-mode .price-breakdown-card,
-    body.dark-mode #dateTimePreview {
+    body.dark-mode .bg-light {
         background-color: #1a1a1a !important;
         border-color: var(--brand-border-dark) !important;
         color: #f1f5f9 !important;
@@ -919,7 +829,6 @@ if ($carRes) {
         color: #cbd5e1 !important;
     }
 
-    /* Navigation Pills Dark Override */
     body.dark-mode .nav-status-pills {
         background-color: var(--brand-card-bg-dark) !important;
         border-color: var(--brand-border-dark) !important;
@@ -934,7 +843,6 @@ if ($carRes) {
         color: #000000 !important;
     }
 
-    /* Quick Duration Dark Override */
     body.dark-mode .duration-btn {
         background-color: #1a1a1a;
         border-color: var(--brand-border-dark);
@@ -947,7 +855,6 @@ if ($carRes) {
         border-color: var(--brand-yellow) !important;
     }
 
-    /* Control Bar Dark Override */
     body.dark-mode .custom-control-bar {
         background: var(--brand-card-bg-dark) !important;
         border-color: var(--brand-border-dark) !important;
@@ -970,7 +877,6 @@ if ($carRes) {
         color: #64748b;
     }
 
-    /* Table & Action Buttons Dark Mode */
     body.dark-mode .table {
         color: #f1f5f9 !important;
         background-color: var(--brand-card-bg-dark) !important;
@@ -997,7 +903,6 @@ if ($carRes) {
         color: #ffffff !important;
     }
 
-    /* Action Buttons & Dropdowns Fixes */
     body.dark-mode .btn-light,
     body.dark-mode .btn-white,
     body.dark-mode .btn-outline-secondary,
@@ -1017,7 +922,6 @@ if ($carRes) {
         border-color: var(--brand-yellow) !important;
     }
 
-    /* Native File Input Buttons Dark Mode Fix */
     body.dark-mode input[type="file"] {
         background-color: #171717 !important;
         color: #f8fafc !important;
@@ -1041,7 +945,6 @@ if ($carRes) {
         cursor: pointer;
     }
 
-    /* Modal Layout & Elements Dark Fix */
     body.dark-mode .modal-header,
     body.dark-mode .modal-footer,
     body.dark-mode .modal-body {
@@ -1103,7 +1006,6 @@ if ($carRes) {
         color: var(--brand-yellow) !important;
     }
 
-    /* Dark Mode Alert & Profile Pill Overrides */
     body.dark-mode .price-info-alert,
     body.dark-mode .alert-info-custom,
     body.dark-mode .modal-body .alert-info {
@@ -1125,689 +1027,273 @@ if ($carRes) {
         color: #bae6fd !important;
     }
 
-    body.dark-mode .user-status-card,
-    body.dark-mode .status-dropdown-btn {
-        background-color: #000000 !important;
-        border-color: var(--brand-border-dark) !important;
+    /* ========================================================
+       CUSTOM SCROLLBAR
+       ======================================================== */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: #cbd5e1 transparent;
     }
 
-    body.dark-mode .user-status-card .status-text,
-    body.dark-mode .status-dropdown-btn .status-text {
-        color: var(--brand-yellow) !important;
+    body.dark-mode * {
+        scrollbar-color: #3f3f46 transparent;
+    }
+
+    ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: transparent;
+        border-radius: 8px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background-color: #cbd5e1;
+        border-radius: 8px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+        transition: background-color 0.2s ease;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--brand-yellow);
+    }
+
+    ::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+
+    body.dark-mode ::-webkit-scrollbar-thumb {
+        background-color: #3f3f46;
+    }
+
+    body.dark-mode ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--brand-yellow);
+    }
+
+    .table-responsive::-webkit-scrollbar {
+        height: 6px;
+    }
+
+    .table-responsive::-webkit-scrollbar-thumb {
+        background-color: #cbd5e1;
+    }
+
+    body.dark-mode .table-responsive::-webkit-scrollbar-thumb {
+        background-color: #3f3f46;
+    }
+
+    body.dark-mode .table-responsive::-webkit-scrollbar-thumb:hover {
+        background-color: var(--brand-yellow);
     }
 
     /* ========================================================
-   CUSTOM SLEEK SCROLLBAR STYLING (GLOBAL & CONTAINERS)
-   ======================================================== */
-/* Firefox Scrollbar Support */
-* {
-    scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 transparent;
-}
-
-body.dark-mode * {
-    scrollbar-color: #3f3f46 transparent;
-}
-
-/* WebKit Scrollbars (Chrome, Edge, Safari) */
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-::-webkit-scrollbar-track {
-    background: transparent;
-    border-radius: 8px;
-}
-
-::-webkit-scrollbar-thumb {
-    background-color: #cbd5e1;
-    border-radius: 8px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
-    transition: background-color 0.2s ease;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background-color: var(--brand-yellow);
-}
-
-::-webkit-scrollbar-corner {
-    background: transparent;
-}
-
-/* Dark Mode Scrollbar Overrides */
-body.dark-mode ::-webkit-scrollbar-thumb {
-    background-color: #3f3f46;
-}
-
-body.dark-mode ::-webkit-scrollbar-thumb:hover {
-    background-color: var(--brand-yellow);
-}
-
-/* Table Responsive Container Scrollbar Polish */
-.table-responsive::-webkit-scrollbar {
-    height: 6px;
-}
-
-.table-responsive::-webkit-scrollbar-thumb {
-    background-color: #cbd5e1;
-}
-
-body.dark-mode .table-responsive::-webkit-scrollbar-thumb {
-    background-color: #3f3f46;
-}
-
-body.dark-mode .table-responsive::-webkit-scrollbar-thumb:hover {
-    background-color: var(--brand-yellow);
-}
-
-/* Custom Searchable Dropdown Styles */
-.custom-dropdown-wrapper {
-    position: relative;
-    width: 100%;
-}
-
-.custom-dropdown-btn {
-    width: 100%;
-    background-color: #121214 !important;
-    color: #ffffff !important;
-    border: 1px solid #333338 !important;
-    border-radius: 8px;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
-    text-align: left;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: pointer;
-    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
-}
-
-.custom-dropdown-wrapper.active .custom-dropdown-btn {
-    border-color: #ffcc00 !important;
-    box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.4) !important;
-}
-
-.custom-dropdown-menu {
-    display: none;
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    background-color: #141416 !important;
-    border: 1px solid #27272a !important;
-    border-radius: 12px;
-    padding: 8px;
-    z-index: 1070;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-    max-height: 320px;
-    overflow-y: auto;
-}
-
-.custom-dropdown-wrapper.active .custom-dropdown-menu {
-    display: block;
-}
-
-.custom-dropdown-search {
-    width: 100%;
-    background-color: #1c1c1f !important;
-    border: 1px solid #2d2d32 !important;
-    border-radius: 8px;
-    color: #ffffff !important;
-    padding: 8px 12px;
-    font-size: 0.85rem;
-    margin-bottom: 8px;
-    outline: none;
-}
-
-.custom-dropdown-search::placeholder {
-    color: #64748b;
-}
-
-.custom-dropdown-search:focus {
-    border-color: #3b3b44 !important;
-}
-
-.custom-dropdown-options {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-.custom-dropdown-item {
-    padding: 8px 12px;
-    font-size: 0.875rem;
-    font-weight: 700;
-    color: #ffffff;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-}
-
-.custom-dropdown-item:hover {
-    background-color: #242428;
-}
-
-.custom-dropdown-divider {
-    height: 1px;
-    background-color: #27272a;
-    margin: 6px 0;
-}
-
-.car-type-dropdown-container {
-    position: relative;
-    width: 100%;
-}
-
-.car-type-dropdown-btn {
-    width: 100%;
-    background-color: #121214;
-    color: #ffffff;
-    border: 1px solid #333338;
-    border-radius: 8px;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
-    text-align: left;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.car-type-menu {
-    background-color: #18181b !important;
-    border: 1px solid #27272a !important;
-    border-radius: 8px;
-    max-height: 280px;
-    overflow-y: auto;
-}
-
-.car-type-menu .dropdown-item {
-    color: #ffffff;
-    font-weight: 600;
-    padding: 8px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-}
-
-.car-type-menu .dropdown-item:hover,
-.car-type-menu .dropdown-item.active {
-    background-color: #facc15 !important; /* Yellow highlight from image */
-    color: #000000 !important;
-}
-
-.car-type-search-input {
-    background-color: #09090b !important;
-    border: 1px solid #27272a !important;
-    color: #ffffff !important;
-}
-
-/* ============================================================
-   MANUAL BOOKING MODAL — REDESIGN
-   Theme-aware (light/dark), glassmorphism, micro-animations
-   ============================================================ */
-
-/* ---- Utility ---- */
-.fs-xs { font-size: 0.68rem; }
-.tracking-wider { letter-spacing: 0.08em; }
-
-/* ---- Modal shell + entrance animation ---- */
-#manualBookingModal .modal-dialog {
-    transition: transform 0.35s cubic-bezier(.34,1.56,.64,1), opacity 0.25s ease;
-}
-#manualBookingModal.fade .modal-dialog {
-    transform: scale(0.94) translateY(24px);
-    opacity: 0;
-}
-#manualBookingModal.show .modal-dialog {
-    transform: scale(1) translateY(0);
-    opacity: 1;
-}
-
-.glass-card {
-    background: rgba(255, 255, 255, 0.94);
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    border: 1px solid rgba(226, 232, 240, 0.8) !important;
-}
-
-body.dark-mode .glass-card {
-    background: rgba(18, 18, 18, 0.92) !important;
-    border: 1px solid rgba(255, 255, 255, 0.07) !important;
-}
-
-/* ---- Header ---- */
-.modal-icon-badge {
-    width: 46px;
-    height: 46px;
-    border-radius: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.2rem;
-    color: #000000;
-    background: linear-gradient(135deg, var(--brand-yellow), #ffe066);
-    box-shadow: 0 6px 16px rgba(255, 204, 0, 0.35);
-    flex-shrink: 0;
-    animation: badgePop 0.5s cubic-bezier(.34,1.56,.64,1);
-}
-
-@keyframes badgePop {
-    from { transform: scale(0.6) rotate(-10deg); opacity: 0; }
-    to { transform: scale(1) rotate(0); opacity: 1; }
-}
-
-.modal-title-text {
-    color: var(--brand-dark);
-    letter-spacing: -0.2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-body.dark-mode .modal-title-text { color: #ffffff; }
-
-/* Keep the title block from crowding the close button on narrow screens */
-.modal-header { flex-wrap: nowrap; gap: 0.75rem; }
-.modal-header > .d-flex.align-items-center.gap-3 {
-    min-width: 0;
-    flex: 1 1 auto;
-}
-.modal-header > .d-flex.align-items-center.gap-3 > div {
-    min-width: 0;
-}
-.modal-header p.text-muted {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.btn-close-custom {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    border: 1px solid var(--brand-border);
-    background: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--brand-muted);
-    font-size: 0.8rem;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-    margin-left: 0.75rem;
-}
-.btn-close-custom:hover {
-    background: #fee2e2;
-    color: #b91c1c;
-    border-color: #fecaca;
-    transform: rotate(90deg);
-}
-body.dark-mode .btn-close-custom {
-    background: #171717;
-    border-color: var(--brand-border-dark);
-    color: #cbd5e1;
-}
-body.dark-mode .btn-close-custom:hover {
-    background: #3f1212;
-    color: #f87171;
-    border-color: #7f1d1d;
-}
-
-/* ---- Icon input group ---- */
-.input-group-custom { position: relative; }
-.input-group-custom .input-icon {
-    position: absolute;
-    left: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 7px;
-    background: var(--brand-yellow-soft);
-    color: #8a6a00;
-    font-size: 0.8rem;
-    pointer-events: none;
-    z-index: 2;
-    transition: background-color 0.2s ease, color 0.2s ease;
-}
-.input-group-custom .custom-select,
-.input-group-custom .custom-input { padding-left: 2.75rem !important; }
-.input-group-custom.compact .input-icon { width: 20px; height: 20px; left: 7px; }
-.input-group-custom.compact .custom-input { padding-left: 2.35rem !important; height: 38px; }
-.input-group-custom:focus-within .input-icon { background: var(--brand-yellow); color: #000000; }
-body.dark-mode .input-group-custom .input-icon { background: rgba(255, 204, 0, 0.12); color: var(--brand-yellow); }
-body.dark-mode .input-group-custom:focus-within .input-icon { background: var(--brand-yellow); color: #000000; }
-
-.custom-select,
-.custom-input {
-    width: 100%;
-    border-radius: 10px !important;
-    border: 1.5px solid var(--brand-border);
-    background-color: #ffffff;
-    font-size: 0.875rem;
-    font-weight: 500;
-    padding: 0.6rem 0.75rem;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease, background-color 0.2s ease;
-}
-.custom-select:hover,
-.custom-input:hover {
-    border-color: #cbd5e1;
-}
-select.custom-select {
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 0.85rem center;
-    background-size: 12px 12px;
-    padding-right: 2.2rem !important;
-    cursor: pointer;
-}
-.custom-select:focus,
-.custom-input:focus {
-    border-color: var(--brand-yellow) !important;
-    box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.22) !important;
-    outline: none;
-}
-body.dark-mode .custom-select,
-body.dark-mode .custom-input {
-    background-color: #1c1c1f;
-    border-color: #34343a;
-    color: #f8fafc;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-body.dark-mode .custom-select:hover,
-body.dark-mode .custom-input:hover {
-    border-color: #52525b;
-}
-body.dark-mode select.custom-select {
-    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23cbd5e1' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
-}
-body.dark-mode .custom-select:focus,
-body.dark-mode .custom-input:focus {
-    box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.18) !important;
-}
-
-/* ---- Customer type fade-switch ---- */
-.fade-switch { animation: switchIn 0.35s ease; }
-@keyframes switchIn {
-    from { opacity: 0; transform: translateY(-6px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-/* ---- File upload cards ---- */
-.file-upload-card { position: relative; }
-.file-input-hidden { position: absolute; inset: 0; opacity: 0; cursor: pointer; z-index: 2; margin: 0; }
-.file-upload-label {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.25rem;
-    min-height: 96px;
-    border: 2px dashed var(--brand-border);
-    border-radius: 14px;
-    padding: 1rem 0.75rem;
-    text-align: center;
-    color: var(--brand-muted);
-    background: #fafafa;
-    transition: all 0.25s ease;
-    cursor: pointer;
-}
-.file-upload-label i { color: var(--brand-muted); transition: transform 0.25s ease, color 0.25s ease; }
-.file-upload-card:hover .file-upload-label,
-.file-upload-card:focus-within .file-upload-label {
-    border-color: var(--brand-yellow);
-    background: var(--brand-yellow-soft);
-    transform: translateY(-2px);
-}
-.file-upload-card:hover .file-upload-label i { color: #b38a00; transform: translateY(-3px) scale(1.08); }
-.file-upload-card.has-file .file-upload-label {
-    border-style: solid;
-    border-color: #22c55e;
-    background: rgba(34, 197, 94, 0.08);
-    animation: fileAccept 0.4s ease;
-}
-.file-upload-card.has-file .file-upload-label i { color: #16a34a; }
-@keyframes fileAccept {
-    0% { transform: scale(0.97); }
-    50% { transform: scale(1.015); }
-    100% { transform: scale(1); }
-}
-.file-title { font-weight: 700; font-size: 0.8rem; color: var(--brand-ink); }
-.file-subtitle { font-size: 0.7rem; color: var(--brand-muted); }
-body.dark-mode .file-upload-label { background: #141414; border-color: var(--brand-border-dark); color: #94a3b8; }
-body.dark-mode .file-title { color: #f1f5f9; }
-body.dark-mode .file-upload-card:hover .file-upload-label { background: rgba(255, 204, 0, 0.06); }
-body.dark-mode .file-upload-card.has-file .file-upload-label { background: rgba(34, 197, 94, 0.1); border-color: #22c55e; }
-
-/* ---- Duration segmented control ---- */
-.duration-segmented-control {
-    display: flex;
-    gap: 6px;
-    background: #f1f5f9;
-    padding: 5px;
-    border-radius: 12px;
-    border: 1px solid var(--brand-border);
-}
-.segment-btn {
-    flex: 1;
-    border: none;
-    background: transparent;
-    padding: 0.55rem 0.5rem;
-    border-radius: 9px;
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: var(--brand-muted);
-    cursor: pointer;
-    transition: all 0.25s cubic-bezier(.4,0,.2,1);
-}
-.segment-btn:hover { color: var(--brand-ink); }
-.segment-btn.active {
-    background: var(--brand-yellow);
-    color: #000000;
-    box-shadow: 0 3px 10px rgba(255, 204, 0, 0.35);
-    transform: translateY(-1px);
-}
-body.dark-mode .duration-segmented-control { background: #141414; border-color: var(--brand-border-dark); }
-body.dark-mode .segment-btn { color: #94a3b8; }
-body.dark-mode .segment-btn:hover { color: #f1f5f9; }
-body.dark-mode .segment-btn.active { color: #000000; }
-
-/* ---- DateTime preview banner ---- */
-.preview-banner {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    background: var(--brand-yellow-soft);
-    border: 1px solid rgba(255, 204, 0, 0.35);
-    border-radius: 14px;
-    padding: 0.85rem 1rem;
-    animation: bannerSlide 0.3s ease;
-}
-@keyframes bannerSlide {
-    from { opacity: 0; transform: translateY(-8px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-.preview-item { display: flex; align-items: center; gap: 0.6rem; flex: 1; min-width: 0; }
-.preview-item i { font-size: 1.1rem; }
-.preview-item .label {
-    display: block;
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--brand-muted);
-    font-weight: 700;
-}
-.preview-item strong {
-    font-size: 0.8rem;
-    color: var(--brand-ink);
-    display: block;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.preview-divider { width: 1px; align-self: stretch; background: rgba(255, 204, 0, 0.4); }
-body.dark-mode .preview-banner { background: rgba(255, 204, 0, 0.07); border-color: rgba(255, 204, 0, 0.25); }
-body.dark-mode .preview-item strong { color: #f1f5f9; }
-
-/* ---- Searchable dropdown menus (car type, member select, etc.) ---- */
-.glass-dropdown {
-    border: 1px solid var(--brand-border) !important;
-    background-color: #ffffff !important;
-    padding: 0.6rem;
-    transform-origin: top center;
-}
-body.dark-mode .glass-dropdown {
-    background-color: #141414 !important;
-    border-color: var(--brand-border-dark) !important;
-}
-.custom-dropdown-item {
-    color: var(--brand-ink);
-    font-weight: 600;
-    border-radius: 8px;
-    padding: 0.5rem 0.7rem;
-    font-size: 0.85rem;
-    transition: background-color 0.15s ease, color 0.15s ease, padding-left 0.15s ease;
-    cursor: pointer;
-}
-.custom-dropdown-item:hover,
-.custom-dropdown-item:focus {
-    background-color: var(--brand-yellow-soft);
-    color: #8a6a00;
-    padding-left: 0.9rem;
-}
-body.dark-mode .custom-dropdown-item { color: #e2e8f0; }
-body.dark-mode .custom-dropdown-item:hover,
-body.dark-mode .custom-dropdown-item:focus {
-    background-color: rgba(255, 204, 0, 0.1);
-    color: var(--brand-yellow);
-}
-#carTypeDropdownBtn { transition: border-color 0.2s ease, box-shadow 0.2s ease; }
-#carTypeDropdownBtn[aria-expanded="true"] {
-    border-color: var(--brand-yellow) !important;
-    box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.2) !important;
-}
-#carTypeDropdownBtn .bi-chevron-down { transition: transform 0.25s ease; }
-#carTypeDropdownBtn[aria-expanded="true"] .bi-chevron-down { transform: rotate(180deg); }
-.custom-scroll { scrollbar-width: thin; }
-.max-h-48 { max-height: 12rem; }
-
-/* ---- Site-wide dropdown open animation ---- */
-.dropdown-menu.show {
-    animation: dropdownPop 0.2s cubic-bezier(.34,1.56,.64,1);
-}
-@keyframes dropdownPop {
-    from { opacity: 0; transform: scale(0.96) translateY(-6px); }
-    to { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-/* ---- Pricing summary card ---- */
-.pricing-card {
-    background: linear-gradient(160deg, #fffdf5, #ffffff);
-    border: 1px solid rgba(255, 204, 0, 0.35);
-    border-radius: 16px;
-    padding: 1.1rem 1.25rem;
-}
-.pricing-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: var(--brand-muted); padding: 0.25rem 0; }
-.pricing-row strong { color: var(--brand-ink); font-weight: 700; transition: color 0.2s ease; }
-
-/* Color-code each row so the sign/meaning of each amount is obvious at a glance */
-.pricing-row.text-danger,
-.pricing-row.text-danger strong { color: #dc2626 !important; }
-.pricing-row.text-success,
-.pricing-row.text-success strong { color: #16a34a !important; }
-
-.pricing-divider { height: 1px; background: rgba(0, 0, 0, 0.06); margin: 0.6rem 0; }
-.pricing-total-row { display: flex; align-items: flex-end; justify-content: space-between; }
-.total-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 800; color: var(--brand-muted); }
-.duration-badge {
-    display: inline-block;
-    margin-top: 2px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    background: var(--brand-yellow-soft);
-    color: #8a6a00;
-    padding: 2px 8px;
-    border-radius: 20px;
-}
-.total-amount { color: #b38a00; font-weight: 800; transition: transform 0.2s ease; display: inline-block; }
-.total-amount.pulse { animation: totalPulse 0.4s ease; }
-@keyframes totalPulse {
-    0% { transform: scale(1); }
-    40% { transform: scale(1.08); color: #b38a00; }
-    100% { transform: scale(1); }
-}
-body.dark-mode .pricing-card { background: linear-gradient(160deg, #1a1600, #141414); border-color: rgba(255, 204, 0, 0.2); }
-body.dark-mode .pricing-row { color: #94a3b8; }
-body.dark-mode .pricing-row strong { color: #f1f5f9; }
-body.dark-mode .pricing-row.text-danger,
-body.dark-mode .pricing-row.text-danger strong { color: #f87171 !important; }
-body.dark-mode .pricing-row.text-success,
-body.dark-mode .pricing-row.text-success strong { color: #4ade80 !important; }
-body.dark-mode .pricing-divider { background: rgba(255, 255, 255, 0.08); }
-body.dark-mode .total-label { color: #94a3b8; }
-body.dark-mode .total-amount { color: var(--brand-yellow); }
-body.dark-mode .duration-badge { background: rgba(255, 204, 0, 0.15); color: var(--brand-yellow); }
-
-/* ---- Footer buttons ---- */
-.btn-cancel-custom {
-    padding: 0.6rem 1.4rem;
-    border-radius: 12px;
-    border: 1px solid var(--brand-border);
-    background: #ffffff;
-    color: var(--brand-ink);
-    font-weight: 600;
-    font-size: 0.875rem;
-    transition: all 0.2s ease;
-}
-.btn-cancel-custom:hover { background: #f1f5f9; border-color: #cbd5e1; }
-body.dark-mode .btn-cancel-custom { background: #171717; border-color: var(--brand-border-dark); color: #e2e8f0; }
-body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
-
-.btn-brand-submit {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.6rem 1.5rem;
-    border-radius: 12px;
-    border: none;
-    background: var(--brand-yellow);
-    color: #000000;
-    font-weight: 700;
-    font-size: 0.875rem;
-    box-shadow: 0 4px 12px rgba(255, 204, 0, 0.3);
-    transition: all 0.2s ease;
-}
-.btn-brand-submit i { transition: transform 0.2s ease; }
-.btn-brand-submit:hover {
-    background: var(--brand-yellow-hover);
-    transform: translateY(-1px);
-    box-shadow: 0 8px 18px rgba(255, 204, 0, 0.4);
-}
-.btn-brand-submit:hover i { transform: translateX(3px); }
-.btn-brand-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-
-/* ---- Accessibility: respect reduced motion ---- */
-@media (prefers-reduced-motion: reduce) {
-    #manualBookingModal .modal-dialog,
-    .modal-icon-badge,
-    .fade-switch,
-    .preview-banner,
-    .dropdown-menu.show,
-    .total-amount.pulse,
-    .file-upload-card.has-file .file-upload-label,
-    .btn-close-custom,
-    .segment-btn {
-        animation: none !important;
-        transition: none !important;
+       CUSTOM DROPDOWN STYLES (page-level — for the search member dropdown etc.)
+       ======================================================== */
+    .custom-dropdown-wrapper {
+        position: relative;
+        width: 100%;
     }
-}
 
+    .custom-dropdown-btn {
+        width: 100%;
+        background-color: #121214 !important;
+        color: #ffffff !important;
+        border: 1px solid #333338 !important;
+        border-radius: 8px;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    }
+
+    .custom-dropdown-wrapper.active .custom-dropdown-btn {
+        border-color: #ffcc00 !important;
+        box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.4) !important;
+    }
+
+    .custom-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        background-color: #141416 !important;
+        border: 1px solid #27272a !important;
+        border-radius: 12px;
+        padding: 8px;
+        z-index: 1070;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        max-height: 320px;
+        overflow-y: auto;
+    }
+
+    .custom-dropdown-wrapper.active .custom-dropdown-menu {
+        display: block;
+    }
+
+    .custom-dropdown-search {
+        width: 100%;
+        background-color: #1c1c1f !important;
+        border: 1px solid #2d2d32 !important;
+        border-radius: 8px;
+        color: #ffffff !important;
+        padding: 8px 12px;
+        font-size: 0.85rem;
+        margin-bottom: 8px;
+        outline: none;
+    }
+
+    .custom-dropdown-search::placeholder {
+        color: #64748b;
+    }
+
+    .custom-dropdown-search:focus {
+        border-color: #3b3b44 !important;
+    }
+
+    .custom-dropdown-options {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .custom-dropdown-item {
+        padding: 8px 12px;
+        font-size: 0.875rem;
+        font-weight: 700;
+        color: #ffffff;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+    }
+
+    .custom-dropdown-item:hover {
+        background-color: #242428;
+    }
+
+    .custom-dropdown-divider {
+        height: 1px;
+        background-color: #27272a;
+        margin: 6px 0;
+    }
+
+    .car-type-dropdown-container {
+        position: relative;
+        width: 100%;
+    }
+
+    .car-type-dropdown-btn {
+        width: 100%;
+        background-color: #121214;
+        color: #ffffff;
+        border: 1px solid #333338;
+        border-radius: 8px;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .car-type-menu {
+        background-color: #18181b !important;
+        border: 1px solid #27272a !important;
+        border-radius: 8px;
+        max-height: 280px;
+        overflow-y: auto;
+    }
+
+    .car-type-menu .dropdown-item {
+        color: #ffffff;
+        font-weight: 600;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+    }
+
+    .car-type-menu .dropdown-item:hover,
+    .car-type-menu .dropdown-item.active {
+        background-color: #facc15 !important;
+        color: #000000 !important;
+    }
+
+    .car-type-search-input {
+        background-color: #09090b !important;
+        border: 1px solid #27272a !important;
+        color: #ffffff !important;
+    }
+
+        /* ---- Audit column (Made By + Last Action) ---- */
+    .audit-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        align-items: flex-start;
+    }
+    .audit-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 9px;
+        border-radius: 20px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        white-space: nowrap;
+        line-height: 1.4;
+    }
+    .audit-badge i { font-size: 0.7rem; }
+
+    /* Made By variants */
+    .audit-badge.is-created-by-staff {
+        background: var(--brand-yellow);
+        color: #000000;
+    }
+    .audit-badge.is-created-by-other {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+    .audit-badge.is-created-by-none {
+        background: #f1f5f9;
+        color: #64748b;
+        font-style: italic;
+        font-weight: 600;
+    }
+
+    /* Last Action variants */
+    .audit-badge.is-action-confirmed  { background: #e0f2fe; color: #0369a1; }
+    .audit-badge.is-action-completed  { background: #dcfce7; color: #15803d; }
+    .audit-badge.is-action-cancelled  { background: #fee2e2; color: #b91c1c; }
+    .audit-badge.is-action-edited     { background: #fef3c7; color: #92400e; }
+    .audit-badge.is-action-none       { background: #f1f5f9; color: #94a3b8; font-style: italic; }
+
+    .audit-badge .time-hint {
+        font-weight: 600;
+        opacity: 0.75;
+        font-size: 0.62rem;
+    }
+
+    /* Dark mode overrides */
+    body.dark-mode .audit-badge.is-created-by-other {
+        background: rgba(99, 102, 241, 0.2);
+        color: #a5b4fc;
+    }
+    body.dark-mode .audit-badge.is-created-by-none {
+        background: #1f1f23;
+        color: #94a3b8;
+    }
+    body.dark-mode .audit-badge.is-action-confirmed  { background: rgba(56, 189, 248, 0.15); color: #7dd3fc; }
+    body.dark-mode .audit-badge.is-action-completed  { background: rgba(34, 197, 94, 0.15);  color: #86efac; }
+    body.dark-mode .audit-badge.is-action-cancelled  { background: rgba(239, 68, 68, 0.15);  color: #fca5a5; }
+    body.dark-mode .audit-badge.is-action-edited     { background: rgba(234, 179, 8, 0.15);  color: #fde047; }
+    body.dark-mode .audit-badge.is-action-none       { background: #1f1f23; color: #94a3b8; }
 </style>
 
 <div class="container-fluid">
@@ -1923,7 +1409,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                     <div class="modal-dialog modal-dialog-centered modal-lg">
                         <div class="modal-content glass-card border-0 shadow-lg">
                             
-                            <!-- Modal Header -->
                             <div class="modal-header border-0 p-4 pb-2 align-items-center">
                                 <div class="d-flex align-items-center gap-3">
                                     <div class="modal-icon-badge">
@@ -1939,13 +1424,11 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                 </button>
                             </div>
 
-                            <!-- Modal Body -->
                             <div class="modal-body p-4 pt-3">
                                 <form action="process/booking_actions.php" method="POST" enctype="multipart/form-data" id="manualBookingForm">
                                     <input type="hidden" name="add_manual_booking" value="1">
 
                                     <div class="row g-3">
-                                        <!-- Customer Type Selection -->
                                         <div class="col-12">
                                             <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Customer Type</label>
                                             <div class="input-group-custom">
@@ -1957,7 +1440,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                             </div>
                                         </div>
 
-                                        <!-- Registered Member Input (searchable) -->
                                         <div id="registeredInput" class="col-12 fade-switch active">
                                             <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Select Member</label>
                                             <div class="dropdown">
@@ -1993,7 +1475,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                             <input type="hidden" name="user_id" id="userIdSelect" value="" required>
                                         </div>
 
-                                        <!-- Guest Inputs -->
                                         <div id="guestInput" class="col-12 d-none fade-switch">
                                             <div class="row g-3">
                                                 <div class="col-12">
@@ -2020,7 +1501,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                             </div>
                                         </div>
 
-                                        <!-- Documents Upload -->
                                         <div class="col-12 col-sm-6">
                                             <label class="form-label text-uppercase fs-xs fw-bold tracking-wider text-danger">Primary ID *</label>
                                             <div class="file-upload-card">
@@ -2057,7 +1537,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                             </div>
                                         </div>
 
-                                        <!-- Duration Selector -->
                                         <div class="col-12">
                                             <label class="form-label text-uppercase fs-xs fw-bold tracking-wider text-muted">Quick Duration</label>
                                             <div class="duration-segmented-control">
@@ -2067,7 +1546,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                             </div>
                                         </div>
 
-                                        <!-- DateTime Preview -->
                                         <div class="col-12">
                                             <div class="preview-banner" id="dateTimePreview" style="display: none;">
                                                 <div class="preview-item">
@@ -2088,7 +1566,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                             </div>
                                         </div>
 
-                                        <!-- Pick / Return Local Inputs -->
                                         <div class="col-12 col-sm-6">
                                             <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Pickup Date & Time</label>
                                             <input type="datetime-local" id="pickupDatetime" class="form-control custom-input" required onchange="syncDateTimeValues()">
@@ -2103,7 +1580,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                         <input type="hidden" name="end_date" id="endDate">
                                         <input type="hidden" name="return_time" id="returnTime">
 
-                                        <!-- Searchable Car Filter Dropdown -->
                                         <div class="col-12">
                                             <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Vehicle Type & Selection</label>
                                             <div class="dropdown mb-2">
@@ -2169,7 +1645,30 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                             </div>
                                         </div>
 
-                                        <!-- Pricing Adjustments -->
+                                        <div class="col-12 col-sm-6">
+                                            <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Delivery Fee (₱)</label>
+                                            <div class="input-group-custom">
+                                                <span class="input-icon"><i class="bi bi-truck"></i></span>
+                                                <input type="number" name="delivery_fee" id="deliveryFeeInput" class="form-control custom-input" value="0" min="0" oninput="calculateTieredTotal()">
+                                            </div>
+                                        </div>
+
+                                        <div class="col-12 col-sm-6">
+                                            <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Pickup Fee (₱)</label>
+                                            <div class="input-group-custom">
+                                                <span class="input-icon"><i class="bi bi-geo-alt"></i></span>
+                                                <input type="number" name="pickup_fee" id="pickupFeeInput" class="form-control custom-input" value="0" min="0" oninput="calculateTieredTotal()">
+                                            </div>
+                                        </div>
+
+                                        <div class="col-12">
+                                            <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Notes / Remarks</label>
+                                            <div class="input-group-custom">
+                                                <span class="input-icon"><i class="bi bi-chat-left-text"></i></span>
+                                                <textarea name="remarks" id="remarksInput" class="form-control custom-input" rows="2" placeholder="Enter any special instructions or notes..."></textarea>
+                                            </div>
+                                        </div>
+
                                         <div class="col-12 col-sm-6">
                                             <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Discount (₱)</label>
                                             <div class="input-group-custom">
@@ -2186,7 +1685,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                             </div>
                                         </div>
 
-                                        <!-- Real-time Cost Calculation Card -->
                                         <div class="col-12">
                                             <div class="pricing-card">
                                                 <div class="pricing-row">
@@ -2214,7 +1712,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                         </div>
                                     </div>
 
-                                    <!-- Actions -->
                                     <div class="d-flex justify-content-end gap-3 mt-4 pt-2">
                                         <button type="button" class="btn btn-cancel-custom" data-bs-dismiss="modal">Cancel</button>
                                         <button type="submit" name="add_manual_booking" class="btn btn-brand-submit" id="confirmBookingBtn">
@@ -2250,6 +1747,44 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                                 <?php endif; ?>
                                             </div>
                                             <div class="text-muted" style="font-size: 11px;"><?= htmlspecialchars($b['gmail'] ?? 'No Email') ?></div>
+
+                                            <!-- AUDIT stack (mobile) -->
+                                            <div class="audit-stack mt-2">
+                                                <?php if (!empty($b['staff_name'])): ?>
+                                                    <span class="audit-badge is-created-by-other">
+                                                        <i class="bi bi-person-fill"></i>
+                                                        By <?= htmlspecialchars($b['staff_name']) ?>
+                                                    </span>
+                                                <?php else: ?>
+                                                    <span class="audit-badge is-created-by-none">
+                                                        <i class="bi bi-person"></i>
+                                                        Auto / Customer
+                                                    </span>
+                                                <?php endif; ?>
+
+                                                <?php if (!empty($b['last_action_by']) && !empty($b['action_by_name'])):
+                                                    $actionType = $b['last_action_type'] ?? 'Edited';
+                                                    $actionClass = 'is-action-' . strtolower($actionType);
+                                                    $actionIcon = [
+                                                        'Confirmed' => 'bi-check-circle-fill',
+                                                        'Completed' => 'bi-flag-fill',
+                                                        'Cancelled' => 'bi-x-circle-fill',
+                                                        'Edited'    => 'bi-pencil-fill',
+                                                    ][$actionType] ?? 'bi-clock';
+                                                ?>
+                                                    <span class="audit-badge <?= $actionClass ?>">
+                                                        <i class="bi <?= $actionIcon ?>"></i>
+                                                        <?= htmlspecialchars($actionType) ?>
+                                                        • <?= htmlspecialchars($b['action_by_name']) ?>
+                                                        <span class="time-hint"><?= formatRelativeTime($b['last_action_at']) ?></span>
+                                                    </span>
+                                                <?php else: ?>
+                                                    <span class="audit-badge is-action-none">
+                                                        <i class="bi bi-clock-history"></i>
+                                                        No actions yet
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
                                         </div>
                                         <div>
                                             <span class="status-badge status-<?= strtolower($b['status']) ?>"><?= $b['status'] ?></span>
@@ -2319,6 +1854,7 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                         <thead>
                                             <tr>
                                                 <th class="border-0 px-3 py-3">Customer</th>
+                                                <th class="border-0 py-3">Audit</th>
                                                 <th class="border-0 py-3">Vehicle</th>
                                                 <th class="border-0 py-3">Schedule</th>
                                                 <th class="border-0 py-3">Verification Files</th>
@@ -2327,9 +1863,9 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                                 <th class="border-0 pe-3 py-3 text-end">Action</th>
                                             </tr>
                                         </thead>
-                                        <tbody class="small">
+                                                                                <tbody class="small">
                                             <?php if (empty($bookings)): ?>
-                                                <tr><td colspan="7" class="text-center py-5 text-muted">No manual bookings found.</td></tr>
+                                                <tr><td colspan="8" class="text-center py-5 text-muted">No manual bookings found.</td></tr>
                                             <?php else: ?>
                                                 <?php foreach ($bookings as $b): ?>
                                                     <?php
@@ -2339,6 +1875,7 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                                         if ($__initials === '') $__initials = '?';
                                                     ?>
                                                     <tr class="js-searchable-booking">
+                                                        <!-- 1. CUSTOMER -->
                                                         <td class="px-3 py-3">
                                                             <div class="d-flex align-items-center gap-2">
                                                                 <span class="customer-avatar"><?= htmlspecialchars($__initials) ?></span>
@@ -2354,14 +1891,60 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                                                 </div>
                                                             </div>
                                                         </td>
+
+                                                        <!-- 2. AUDIT -->
+                                                        <td class="py-3">
+                                                            <div class="audit-stack">
+                                                                <?php if (!empty($b['staff_name'])): ?>
+                                                                    <span class="audit-badge is-created-by-other">
+                                                                        <i class="bi bi-person-fill"></i>
+                                                                        By <?= htmlspecialchars($b['staff_name']) ?>
+                                                                    </span>
+                                                                <?php else: ?>
+                                                                    <span class="audit-badge is-created-by-none">
+                                                                        <i class="bi bi-person"></i>
+                                                                        Auto / Customer
+                                                                    </span>
+                                                                <?php endif; ?>
+
+                                                                <?php if (!empty($b['last_action_by']) && !empty($b['action_by_name'])):
+                                                                    $actionType = $b['last_action_type'] ?? 'Edited';
+                                                                    $actionClass = 'is-action-' . strtolower($actionType);
+                                                                    $actionIcon = [
+                                                                        'Confirmed' => 'bi-check-circle-fill',
+                                                                        'Completed' => 'bi-flag-fill',
+                                                                        'Cancelled' => 'bi-x-circle-fill',
+                                                                        'Edited'    => 'bi-pencil-fill',
+                                                                    ][$actionType] ?? 'bi-clock';
+                                                                ?>
+                                                                    <span class="audit-badge <?= $actionClass ?>">
+                                                                        <i class="bi <?= $actionIcon ?>"></i>
+                                                                        <?= htmlspecialchars($actionType) ?>
+                                                                        • <?= htmlspecialchars($b['action_by_name']) ?>
+                                                                        <span class="time-hint"><?= formatRelativeTime($b['last_action_at']) ?></span>
+                                                                    </span>
+                                                                <?php else: ?>
+                                                                    <span class="audit-badge is-action-none">
+                                                                        <i class="bi bi-clock-history"></i>
+                                                                        No actions yet
+                                                                    </span>
+                                                                <?php endif; ?>
+                                                            </div>
+                                                        </td>
+
+                                                        <!-- 3. VEHICLE -->
                                                         <td class="py-3">
                                                             <div class="fw-semibold"><?= htmlspecialchars($b['brand']) ?> <?= htmlspecialchars($b['model']) ?></div>
                                                             <div class="text-muted small"><?= htmlspecialchars($b['plate_number']) ?></div>
                                                         </td>
+
+                                                        <!-- 4. SCHEDULE -->
                                                         <td class="py-3">
                                                             <div><i class="bi bi-calendar-event me-1 text-muted"></i><?= date('M d', strtotime($b['start_date'])) ?> - <?= date('M d', strtotime($b['end_date'])) ?></div>
                                                             <div class="text-muted small"><i class="bi bi-clock me-1"></i><?= date('h:i A', strtotime($b['pickup_time'])) ?> - <?= date('h:i A', strtotime($b['return_time'])) ?></div>
                                                         </td>
+
+                                                        <!-- 5. VERIFICATION FILES -->
                                                         <td class="py-3">
                                                             <div class="d-flex gap-1">
                                                                 <?php if (!empty($b['primary_id_path'])): ?>
@@ -2372,6 +1955,8 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                                                 <?php endif; ?>
                                                             </div>
                                                         </td>
+
+                                                        <!-- 6. PRICING DATA -->
                                                         <td class="py-3">
                                                             <div class="fw-bold text-dark">
                                                                 ₱<?= number_format($b['total_price'] + $b['discount_price'] + $b['down_payment'], 2) ?>
@@ -2380,9 +1965,13 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                                                 Bal: ₱<?= number_format($b['total_price'], 2) ?>
                                                             </div>
                                                         </td>
+
+                                                        <!-- 7. STATUS -->
                                                         <td class="py-3 text-center">
                                                             <span class="status-badge status-<?= strtolower($b['status']) ?>"><?= $b['status'] ?></span>
                                                         </td>
+
+                                                        <!-- 8. ACTION -->
                                                         <td class="pe-3 py-3 text-end">
                                                             <?php if ($b['status'] == 'Completed' || $b['status'] == 'Cancelled'): ?>
                                                                 <span class="text-muted small"><i class="bi bi-lock-fill"></i> Locked</span>
@@ -2422,7 +2011,6 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content glass-card border-0 shadow-lg">
 
-                <!-- Modal Header -->
                 <div class="modal-header border-0 p-4 pb-2 align-items-center">
                     <div class="d-flex align-items-center gap-3">
                         <div class="modal-icon-badge">
@@ -2549,7 +2137,7 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                     <span class="input-icon"><i class="bi bi-car-front-fill"></i></span>
                                     <select name="car_id" id="carSelect_<?= $b['id'] ?>" class="form-select custom-select" required>
                                         <?php
-                                        $cars_sql = "SELECT id, brand, model, plate_number FROM cars ORDER BY brand ASC";
+                                        $cars_sql = "SELECT id, brand, model, plate_number FROM cars WHERE 1=1" . branchScopeSql() . " ORDER BY brand ASC";
                                         $cars_res = mysqli_query($conn, $cars_sql);
                                         while ($car_row = mysqli_fetch_assoc($cars_res)) {
                                             $selected = ($car_row['id'] == $b['car_id']) ? 'selected' : '';
@@ -2557,6 +2145,31 @@ body.dark-mode .btn-cancel-custom:hover { background: #27272a; }
                                         }
                                         ?>
                                     </select>
+                                </div>
+                            </div>
+
+                            <!-- ── Delivery Fee, Pickup Fee & Remarks (Edit Modal) ── -->
+                            <div class="col-12 col-sm-6">
+                                <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Delivery Fee (₱)</label>
+                                <div class="input-group-custom">
+                                    <span class="input-icon"><i class="bi bi-truck"></i></span>
+                                    <input type="number" name="delivery_fee" class="form-control custom-input" value="<?= floatval($b['delivery_fee'] ?? 0) ?>" min="0">
+                                </div>
+                            </div>
+
+                            <div class="col-12 col-sm-6">
+                                <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Pickup Fee (₱)</label>
+                                <div class="input-group-custom">
+                                    <span class="input-icon"><i class="bi bi-geo-alt"></i></span>
+                                    <input type="number" name="pickup_fee" class="form-control custom-input" value="<?= floatval($b['pickup_fee'] ?? 0) ?>" min="0">
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label text-uppercase fs-xs fw-bold tracking-wider">Notes / Remarks</label>
+                                <div class="input-group-custom">
+                                    <span class="input-icon"><i class="bi bi-chat-left-text"></i></span>
+                                    <textarea name="remarks" class="form-control custom-input" rows="2" placeholder="Enter any special instructions or notes..."><?= htmlspecialchars($b['remarks'] ?? '') ?></textarea>
                                 </div>
                             </div>
 
@@ -2886,7 +2499,7 @@ function calculateTieredTotal() {
     const totalEl = document.getElementById('displayTotal');
     totalEl.innerText = '₱' + remainingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 });
     totalEl.classList.remove('pulse');
-    void totalEl.offsetWidth; /* restart animation */
+    void totalEl.offsetWidth;
     totalEl.classList.add('pulse');
 
     document.getElementById('totalPriceInput').value = remainingBalance.toFixed(2);
@@ -2918,7 +2531,6 @@ function toggleCustomerType() {
     }
 }
 
-/* Same switch as toggleCustomerType(), but scoped to a single Edit Booking modal by id */
 function toggleEditCustomerType(id) {
     const type = document.getElementById('userType_' + id).value;
     const regDiv = document.getElementById('registeredInput_' + id);
@@ -2939,9 +2551,6 @@ function toggleEditCustomerType(id) {
     }
 }
 
-/* Animated file-upload previews. Delegated on document so this also
-   covers every dynamically-repeated Edit Booking modal, not just the
-   fixed IDs in the Create Booking modal. */
 function initFileUploadPreviews() {
     document.addEventListener('change', function (e) {
         const input = e.target.closest('.file-input-hidden');
@@ -2953,7 +2562,6 @@ function initFileUploadPreviews() {
         const titleEl = card.querySelector('.file-title');
         const subtitleEl = card.querySelector('.file-subtitle');
 
-        // Remember the original label text the first time this card is touched
         if (card.dataset.defaultTitle === undefined) {
             card.dataset.defaultTitle = titleEl ? titleEl.textContent : '';
             card.dataset.defaultSubtitle = subtitleEl ? subtitleEl.textContent : '';
@@ -3064,7 +2672,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    /* ---- Searchable "Select Member" dropdown (Walk-in Booking) ---- */
     const memberBtn = document.getElementById('memberDropdownBtn');
     const memberSearch = document.getElementById('memberSearchInput');
     const memberList = document.getElementById('memberOptionsList');
@@ -3123,8 +2730,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Native "required" is ignored on hidden inputs, so validate the
-    // member selection manually before the Walk-in Booking form submits.
     const manualBookingForm = document.getElementById('manualBookingForm');
     if (manualBookingForm) {
         manualBookingForm.addEventListener('submit', function(e) {

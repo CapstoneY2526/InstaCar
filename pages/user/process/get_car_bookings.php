@@ -11,7 +11,9 @@ if (!isset($_GET['car_id'])) {
 
 $car_id = mysqli_real_escape_string($conn, $_GET['car_id']);
 
-// Get all confirmed bookings for this car (not cancelled/completed)
+// ============================================================
+// 1. Booked dates from existing bookings (not cancelled/completed)
+// ============================================================
 $sql = "SELECT start_date, end_date, pickup_time, return_time 
         FROM bookings 
         WHERE car_id = '$car_id' 
@@ -33,7 +35,30 @@ while ($row = mysqli_fetch_assoc($result)) {
     }
 }
 
-// Remove duplicates
+// ============================================================
+// 2. Blocked dates from car_schedules (maintenance, personal use, etc.)
+// ============================================================
+$schedSql = "SELECT start_date, end_date 
+             FROM car_schedules 
+             WHERE car_id = '$car_id' 
+             AND end_date >= CURDATE()";
+
+$schedResult = mysqli_query($conn, $schedSql);
+
+if ($schedResult) {
+    while ($srow = mysqli_fetch_assoc($schedResult)) {
+        $sStart = new DateTime($srow['start_date']);
+        $sEnd = new DateTime($srow['end_date']);
+        $sInterval = new DateInterval('P1D');
+        $sRange = new DatePeriod($sStart, $sInterval, $sEnd->modify('+1 day'));
+
+        foreach ($sRange as $sDate) {
+            $bookedDates[] = $sDate->format('Y-m-d');
+        }
+    }
+}
+
+// Remove duplicates and reindex
 $bookedDates = array_unique($bookedDates);
 $bookedDates = array_values($bookedDates);
 

@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once __DIR__ . '/../../../config/database.php';
+require_once __DIR__ . '/../../../config/booking_scope_helper.php';
 
 if (!isset($_SESSION['user_id']) || $_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_POST['booking_id']) || !isset($_POST['type'])) {
     header("Location: ../../../index.php");
@@ -8,10 +9,20 @@ if (!isset($_SESSION['user_id']) || $_SERVER['REQUEST_METHOD'] !== 'POST' || !is
 }
 
 $booking_id = (int)$_POST['booking_id'];
-$type = $_POST['type'];
+$type       = $_POST['type'];
+$user_id    = (int)$_SESSION['user_id'];
+$user_role  = $_SESSION['role'] ?? '';
+$branch_id  = isset($_SESSION['branch_id']) ? (int)$_SESSION['branch_id'] : null;
 
+// --- Verify the current user is allowed to modify this booking ---
+if (!userCanAccessBooking($conn, $booking_id, $user_id, $user_role, $branch_id)) {
+    header("Location: ../booking_details.php?id=" . $booking_id);
+    exit();
+}
+
+// --- Proceed with the delete ---
 if ($type === 'photo' && isset($_POST['photo_id'], $_POST['file_name'])) {
-    $photo_id = (int)$_POST['photo_id'];
+    $photo_id  = (int)$_POST['photo_id'];
     $file_name = basename($_POST['file_name']);
 
     // Delete physical file
@@ -20,7 +31,6 @@ if ($type === 'photo' && isset($_POST['photo_id'], $_POST['file_name'])) {
         unlink($file_path);
     }
 
-    // Delete photo record
     $stmt = $conn->prepare("DELETE FROM booking_photos WHERE id = ? AND booking_id = ?");
     $stmt->bind_param("ii", $photo_id, $booking_id);
     $stmt->execute();
@@ -29,7 +39,6 @@ if ($type === 'photo' && isset($_POST['photo_id'], $_POST['file_name'])) {
 } elseif ($type === 'remark' && isset($_POST['remark_id'])) {
     $remark_id = (int)$_POST['remark_id'];
 
-    // Delete remark record
     $stmt = $conn->prepare("DELETE FROM booking_remarks WHERE id = ? AND booking_id = ?");
     $stmt->bind_param("ii", $remark_id, $booking_id);
     $stmt->execute();

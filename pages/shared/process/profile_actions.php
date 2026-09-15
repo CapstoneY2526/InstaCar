@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once __DIR__ . '/../../../config/database.php';
+require_once __DIR__ . '/../../../config/content_helper.php';
 
 if (!isset($_SESSION['user_id'])) {
     exit('Unauthorized');
@@ -108,6 +109,38 @@ if (isset($_POST['upload_qr_code'])) {
         $_SESSION['success'] = "Payment QR code updated successfully!";
     } else {
         $_SESSION['error'] = "Failed to save QR code image file to server.";
+    }
+
+    ?>
+    <script>window.location.href = "<?php echo $_SERVER['HTTP_REFERER']; ?>";</script>
+    <?php
+    exit();
+}
+
+// --- SAVE RENTAL AGREEMENT CONTENT (ADMIN / OPERATOR ONLY) ---
+if (isset($_POST['save_rental_agreement'])) {
+
+    // Re-check role server-side (never trust the form)
+    if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], ['admin', 'operator'])) {
+        $_SESSION['error'] = "You do not have permission to edit the agreement.";
+        ?>
+        <script>window.location.href = "<?php echo $_SERVER['HTTP_REFERER']; ?>";</script>
+        <?php
+        exit();
+    }
+
+    $new_content = $_POST['rental_agreement_html'] ?? '';
+
+    // Basic sanitization — strip <script>, on* handlers, javascript: URLs
+    $new_content = preg_replace('#<script\b[^>]*>(.*?)</script>#is', '', $new_content);
+    $new_content = preg_replace('/\son\w+\s*=\s*"[^"]*"/i', '', $new_content);
+    $new_content = preg_replace("/\son\w+\s*=\s*'[^']*'/i", '', $new_content);
+    $new_content = preg_replace('/javascript:/i', '', $new_content);
+
+    if (update_site_content($conn, 'rental_agreement_html', $new_content, $user_id)) {
+        $_SESSION['success'] = "Rental agreement updated successfully!";
+    } else {
+        $_SESSION['error'] = "Failed to save rental agreement. Please try again.";
     }
 
     ?>

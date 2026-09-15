@@ -25,13 +25,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
     }
     
     // --- GET UPDATED CAR PRICING FROM SCHEMA ---
-    $car_sql    = "SELECT price_10_hours, price_12_hours, price_24_hours FROM cars WHERE id = '$car_id'";
+    $car_sql    = "SELECT price_10_hours, price_12_hours, price_24_hours, branch_id FROM cars WHERE id = '$car_id'";
     $car_result = mysqli_query($conn, $car_sql);
     $car        = mysqli_fetch_assoc($car_result);
     
     $price_10_hours = floatval($car['price_10_hours'] ?? 0);
     $price_12_hours = floatval($car['price_12_hours'] ?? 0);
     $price_24_hours = floatval($car['price_24_hours'] ?? 0);
+
+    // Booking inherits the car's branch — always.
+    $branch_id = isset($car['branch_id']) && $car['branch_id'] !== null
+        ? intval($car['branch_id'])
+        : null;
     
     // --- CALCULATE TOTAL USING EXACT SCHEMA TIERED PRICING ---
     if ($hours <= 10) {
@@ -128,16 +133,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
     
     // Insert into database using prepared statements to safely handle null addresses
     $stmt = $conn->prepare("INSERT INTO bookings (
-                user_id, car_id, start_date, end_date, 
+                user_id, car_id, branch_id, start_date, end_date, 
                 pickup_time, return_time, 
                 total_price, discount_price, down_payment,
                 status, booking_type, fulfillment_type, delivery_address,
                 primary_id_path, secondary_id_path, proof_billing_path, proof_payment_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'online', ?, ?, ?, ?, ?, ?)");
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'online', ?, ?, ?, ?, ?, ?)");
 
     $stmt->bind_param(
-        "iisssdddsssssss",
-        $user_id, $car_id, $start_date, $end_date,
+        "iiissssdddssssss",
+        $user_id, $car_id, $branch_id, $start_date, $end_date,
         $pickup_time, $return_time,
         $total_price, $discount_price, $down_payment,
         $fulfillment_type, $delivery_address,

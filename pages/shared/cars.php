@@ -1,6 +1,7 @@
-    <?php
+<?php
     session_start();
     require_once __DIR__ . '/../../config/database.php';
+    require_once __DIR__ . '/../../config/branch_helper.php';
 
     if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'operator'])) {
         $_SESSION['error'] = "Access denied.";
@@ -12,27 +13,108 @@
     $user_role = $_SESSION['role'];
     $pageTitle = ($user_role === 'admin') ? 'Fleet Management' : 'My Car Fleet';
 
-    // Get stats
+    // Get stats (with branch scope)
     $statsQuery = "SELECT 
         COUNT(*) as total_cars,
         SUM(CASE WHEN status = 'Available' THEN 1 ELSE 0 END) as available,
         SUM(CASE WHEN status IN ('Active', 'Rented') THEN 1 ELSE 0 END) as rented,
         SUM(CASE WHEN status = 'Maintenance' THEN 1 ELSE 0 END) as maintenance
-    FROM cars";
+    FROM cars
+    WHERE 1=1";
 
     if ($user_role !== 'admin') {
-        $statsQuery .= " WHERE user_id = $current_user_id";
+        $statsQuery .= " AND user_id = $current_user_id";
     }
+
+    // Admin-only branch filter; staff/operator auto-scope via helper
+    $statsQuery .= branchScopeSql();
 
     $statsResult = mysqli_query($conn, $statsQuery);
     $stats = mysqli_fetch_assoc($statsResult);
 
-    // Get cars list
+    // Get cars list (with branch scope)
     $cars = [];
     if ($user_role === 'admin') {
-        $query = "SELECT c.*, u.name as owner_name FROM cars c LEFT JOIN users u ON c.user_id = u.id ORDER BY c.id DESC";
+        $query = "SELECT c.*, u.name as owner_name 
+                  FROM cars c 
+                  LEFT JOIN users u ON c.user_id = u.id 
+                  WHERE 1=1" . branchScopeSql('c.branch_id') . "
+                  ORDER BY c.id DESC";
     } else {
-        $query = "SELECT * FROM cars WHERE user_id = $current_user_id ORDER BY id DESC";
+        $query = "SELECT * FROM cars 
+                  WHERE user_id = $current_user_id" . branchScopeSql() . "
+                  ORDER BY id DESC";
+    }
+
+    // Load car schedules (active + upcoming) for status display
+    $schedules_map = [];
+    $schedQuery = "SELECT cs.car_id, cs.start_date, cs.end_date, cs.reason
+                   FROM car_schedules cs
+                   INNER JOIN cars c ON cs.car_id = c.id
+                   WHERE cs.end_date >= CURDATE()" . branchScopeSql('c.branch_id');
+    $schedResult = mysqli_query($conn, $schedQuery);
+    if ($schedResult) {
+        while ($s = mysqli_fetch_assoc($schedResult)) {
+            $schedules_map[$s['car_id']][] = $s;
+        }
+    }
+
+    function getScheduleState($car_id, $schedules_map) {
+        if (!isset($schedules_map[$car_id])) return null;
+
+        $todayTs = strtotime(date('Y-m-d'));
+        $active = null;
+        $upcoming = null;
+
+        foreach ($schedules_map[$car_id] as $sched) {
+            $startTs = strtotime($sched['start_date']);
+            $endTs   = strtotime($sched['end_date']);
+
+            if ($todayTs >= $startTs && $todayTs <= $endTs) {
+                $active = $sched;
+                break;
+            }
+            if ($startTs > $todayTs) {
+                if ($upcoming === null || $startTs < strtotime($upcoming['start_date'])) {
+                    $upcoming = $sched;
+                }
+            }
+        }
+
+        if ($active) return ['state' => 'active', 'schedule' => $active];
+        if ($upcoming) return ['state' => 'upcoming', 'schedule' => $upcoming];
+        return null;
+    }
+
+    // Fetch operators list (admin only)
+    $operators_list = [];
+    if ($user_role === 'admin') {
+        $opQuery = "SELECT id, name, email FROM users WHERE role = 'operator'" . branchScopeSql() . " ORDER BY name ASC";
+        $opResult = mysqli_query($conn, $opQuery);
+        if ($opResult) {
+            while ($opRow = mysqli_fetch_assoc($opResult)) {
+                $operators_list[] = $opRow;
+            }
+        }
+    }
+
+    // Fetch branches list
+    $branches_list = [];
+    $brQuery = "SELECT id, name FROM branches WHERE is_active = 1 ORDER BY name ASC";
+    $brResult = mysqli_query($conn, $brQuery);
+    if ($brResult) {
+        while ($brRow = mysqli_fetch_assoc($brResult)) {
+            $branches_list[] = $brRow;
+        }
+    }
+
+    if (!function_exists('branchNameById')) {
+        function branchNameById($id, $list) {
+            foreach ($list as $b) {
+                if ((int)$b['id'] === (int)$id) return $b['name'];
+            }
+            return null;
+        }
     }
 
     $result = mysqli_query($conn, $query);
@@ -105,10 +187,7 @@
             border-bottom: 1px solid #f1e6bc !important;
         }
 
-        .btn {
-            transition: all 0.2s ease-in-out !important;
-            font-weight: 500;
-        }
+        .btn { transition: all 0.2s ease-in-out !important; font-weight: 500; }
 
         .btn.btn-primary,
         .btn-primary {
@@ -118,10 +197,8 @@
             font-weight: 600 !important;
             box-shadow: 0 2px 4px rgba(255, 204, 0, 0.2) !important;
         }
-        .btn.btn-primary:hover,
-        .btn.btn-primary:focus,
-        .btn-primary:hover,
-        .btn-primary:focus {
+        .btn.btn-primary:hover, .btn.btn-primary:focus,
+        .btn-primary:hover, .btn-primary:focus {
             background-color: #e6b800 !important;
             border-color: #e6b800 !important;
             color: #000000 !important;
@@ -212,46 +289,23 @@
         }
 
         @media (min-width: 768px) {
-            .stat-card {
-                border-radius: 16px;
-                padding: 1.25rem;
-                gap: 13px;
-            }
+            .stat-card { border-radius: 16px; padding: 1.25rem; gap: 13px; }
         }
 
         .stat-icon {
-            width: 36px;
-            height: 36px;
+            width: 36px; height: 36px;
             border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             font-size: 1.1rem;
             flex-shrink: 0;
         }
 
         @media (min-width: 768px) {
-            .stat-icon {
-                width: 48px;
-                height: 48px;
-                border-radius: 14px;
-                font-size: 1.5rem;
-            }
+            .stat-icon { width: 48px; height: 48px; border-radius: 14px; font-size: 1.5rem; }
         }
 
-        .stat-value {
-            font-size: 1.25rem;
-            font-weight: 800;
-            line-height: 1.1;
-            color: var(--brand-ink);
-        }
-
-        @media (min-width: 768px) {
-            .stat-value {
-                font-size: 1.75rem;
-                line-height: 1.2;
-            }
-        }
+        .stat-value { font-size: 1.25rem; font-weight: 800; line-height: 1.1; color: var(--brand-ink); }
+        @media (min-width: 768px) { .stat-value { font-size: 1.75rem; line-height: 1.2; } }
 
         .stat-label {
             font-size: 0.625rem;
@@ -264,13 +318,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-
-        @media (min-width: 768px) {
-            .stat-label {
-                font-size: 0.72rem;
-                letter-spacing: 0.5px;
-            }
-        }
+        @media (min-width: 768px) { .stat-label { font-size: 0.72rem; letter-spacing: 0.5px; } }
 
         .stat-icon.bg-primary.bg-opacity-10 {
             background: var(--brand-yellow-soft) !important;
@@ -296,17 +344,12 @@
         }
 
         .action-scroll {
-            display: flex;
-            justify-content: flex-end;
-            overflow-x: auto;
-            max-width: 100%;
+            display: flex; justify-content: flex-end;
+            overflow-x: auto; max-width: 100%;
             -webkit-overflow-scrolling: touch;
         }
-
         .action-scroll .btn-group {
-            display: inline-flex;
-            flex-wrap: nowrap;
-            gap: 6px;
+            display: inline-flex; flex-wrap: nowrap; gap: 6px;
             min-width: max-content;
         }
 
@@ -321,11 +364,8 @@
 
         .custom-control-bar .card-body,
         .custom-control-bar.d-flex {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-            justify-content: space-between;
+            display: flex; flex-wrap: wrap; gap: 8px;
+            align-items: center; justify-content: space-between;
         }
 
         .search-input-wrapper {
@@ -335,14 +375,10 @@
         }
 
         .search-input-wrapper i {
-            position: absolute;
-            left: 12px;
-            top: 50%;
+            position: absolute; left: 12px; top: 50%;
             transform: translateY(-50%);
-            color: #94a3b8;
-            font-size: 13px;
-            pointer-events: none;
-            z-index: 5;
+            color: #94a3b8; font-size: 13px;
+            pointer-events: none; z-index: 5;
         }
 
         .search-input-wrapper input {
@@ -363,9 +399,7 @@
             font-size: 12px;
             font-weight: 500;
             white-space: nowrap;
-            display: flex;
-            align-items: center;
-            gap: 6px;
+            display: flex; align-items: center; gap: 6px;
         }
 
         .entry-limiter-select {
@@ -390,12 +424,9 @@
         }
 
         .theme-toggle-btn {
-            width: 36px;
-            height: 36px;
+            width: 36px; height: 36px;
             border-radius: 50%;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
+            display: inline-flex; align-items: center; justify-content: center;
             border: 1px solid #e2e8f0;
             background: #ffffff;
             transition: all 0.25s ease;
@@ -417,27 +448,13 @@
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
 
-        .modal-header {
-            border-bottom: 1px solid #f1f5f9;
-            padding: 1.25rem 1.5rem;
-        }
-
-        .modal-title {
-            font-weight: 700;
-            color: var(--brand-ink);
-        }
-
-        .modal-body {
-            padding: 1.5rem;
-        }
-
+        .modal-header { border-bottom: 1px solid #f1f5f9; padding: 1.25rem 1.5rem; }
+        .modal-title { font-weight: 700; color: var(--brand-ink); }
+        .modal-body { padding: 1.5rem; }
         .modal-footer {
             border-top: 1px solid #f1f5f9;
             padding: 1rem 1.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 0.75rem;
+            display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem;
         }
 
         #dropzoneContainer,
@@ -463,8 +480,7 @@
             margin-bottom: 0.375rem;
         }
 
-        .form-control,
-        .form-select {
+        .form-control, .form-select {
             border-radius: 8px;
             border: 1px solid #cbd5e1;
             padding: 0.5rem 0.75rem;
@@ -474,10 +490,7 @@
             transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
         }
 
-        .form-control::placeholder {
-            color: #94a3b8;
-            opacity: 1;
-        }
+        .form-control::placeholder { color: #94a3b8; opacity: 1; }
 
         .form-section-title {
             font-size: 0.95rem;
@@ -501,14 +514,8 @@
             .col-md-10 { width: 100%; }
             .main-content { padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
 
-            #fleetTable,
-            #fleetTable tbody {
-                display: block;
-                width: 100%;
-            }
-            #fleetTable thead {
-                display: none;
-            }
+            #fleetTable, #fleetTable tbody { display: block; width: 100%; }
+            #fleetTable thead { display: none; }
             #fleetTable tr {
                 display: block;
                 background: #ffffff;
@@ -535,7 +542,6 @@
                 flex-shrink: 0;
                 margin-right: 8px;
             }
-            
             #fleetTable td:first-child {
                 border-bottom: 1px solid #f1f5f9 !important;
                 padding-bottom: 10px;
@@ -543,118 +549,75 @@
                 justify-content: flex-start;
                 align-items: center;
             }
-            #fleetTable td:first-child::before {
-                display: none;
-            }
-            .car-img-container {
-                width: 48px;
-                height: 48px;
-                flex-shrink: 0;
-            }
-            
+            #fleetTable td:first-child::before { display: none; }
+
+            .car-img-container { width: 48px; height: 48px; flex-shrink: 0; }
+
             #fleetTable td { text-align: right !important; }
             #fleetTable td * { text-align: right !important; }
             #fleetTable td:first-child * { text-align: left !important; }
 
             .badge { margin-top: 0; }
             .btn-group {
-                display: flex;
-                gap: 6px;
+                display: flex; gap: 6px;
                 justify-content: flex-end;
                 width: auto;
             }
         }
 
-        body.dark-mode {
-            background-color: var(--brand-black) !important;
-            color: #f1f5f9 !important;
-        }
+        body.dark-mode { background-color: var(--brand-black) !important; color: #f1f5f9 !important; }
+        body.dark-mode .main-content { background-color: var(--brand-black) !important; }
 
-        body.dark-mode .main-content {
-            background-color: var(--brand-black) !important;
-        }
-
-        body.dark-mode header,
-        body.dark-mode nav,
-        body.dark-mode .navbar {
+        body.dark-mode header, body.dark-mode nav, body.dark-mode .navbar {
             background-color: var(--brand-card-bg-dark) !important;
             border-color: var(--brand-border-dark) !important;
             color: #f1f5f9 !important;
         }
 
-        body.dark-mode footer,
-        body.dark-mode .footer,
-        body.dark-mode footer.bg-white,
-        body.dark-mode div.bg-white:has(> footer),
+        body.dark-mode footer, body.dark-mode .footer,
+        body.dark-mode footer.bg-white, body.dark-mode div.bg-white:has(> footer),
         body.dark-mode [class*="footer"] {
             background-color: var(--brand-black) !important;
             border-color: var(--brand-border-dark) !important;
             color: #cbd5e1 !important;
         }
 
-        body.dark-mode .dropdown-toggle,
-        body.dark-mode .user-pill,
-        body.dark-mode .profile-pill,
-        body.dark-mode [data-bs-toggle="dropdown"],
-        body.dark-mode .btn-group > .btn.bg-white,
-        body.dark-mode .btn.bg-white {
+        body.dark-mode .dropdown-toggle, body.dark-mode .user-pill,
+        body.dark-mode .profile-pill, body.dark-mode [data-bs-toggle="dropdown"],
+        body.dark-mode .btn-group > .btn.bg-white, body.dark-mode .btn.bg-white {
             background-color: var(--brand-card-bg-dark) !important;
             border-color: var(--brand-border-dark) !important;
             color: #ffffff !important;
         }
 
-        body.dark-mode .card,
-        body.dark-mode .stat-card,
-        body.dark-mode .modal-content,
-        body.dark-mode .dropdown-menu {
+        body.dark-mode .card, body.dark-mode .stat-card,
+        body.dark-mode .modal-content, body.dark-mode .dropdown-menu {
             background-color: var(--brand-card-bg-dark) !important;
             border-color: var(--brand-border-dark) !important;
             color: #f1f5f9 !important;
         }
 
-        body.dark-mode .dropdown-item {
-            color: #e2e8f0 !important;
-        }
+        body.dark-mode .dropdown-item { color: #e2e8f0 !important; }
+        body.dark-mode .dropdown-item:hover { background-color: #27272a !important; color: #ffffff !important; }
+        body.dark-mode .stat-card:hover { border-color: var(--brand-yellow) !important; box-shadow: 0 10px 24px rgba(255, 204, 0, 0.12) !important; }
 
-        body.dark-mode .dropdown-item:hover {
-            background-color: #27272a !important;
-            color: #ffffff !important;
-        }
-
-        body.dark-mode .stat-card:hover {
-            border-color: var(--brand-yellow) !important;
-            box-shadow: 0 10px 24px rgba(255, 204, 0, 0.12) !important;
-        }
-
-        body.dark-mode .stat-value,
-        body.dark-mode .fw-bold,
-        body.dark-mode h1, body.dark-mode h2, body.dark-mode h3, 
+        body.dark-mode .stat-value, body.dark-mode .fw-bold,
+        body.dark-mode h1, body.dark-mode h2, body.dark-mode h3,
         body.dark-mode h4, body.dark-mode h5, body.dark-mode h6,
-        body.dark-mode .text-dark,
-        body.dark-mode .modal-title,
-        body.dark-mode .form-section-title {
-            color: #ffffff !important;
-        }
+        body.dark-mode .text-dark, body.dark-mode .modal-title,
+        body.dark-mode .form-section-title { color: #ffffff !important; }
 
-        body.dark-mode .stat-label,
-        body.dark-mode .text-muted,
-        body.dark-mode .text-secondary,
-        body.dark-mode .form-label {
-            color: #cbd5e1 !important;
-        }
+        body.dark-mode .stat-label, body.dark-mode .text-muted,
+        body.dark-mode .text-secondary, body.dark-mode .form-label { color: #cbd5e1 !important; }
 
         body.dark-mode .custom-control-bar {
             background: var(--brand-card-bg-dark) !important;
             border-color: var(--brand-border-dark) !important;
         }
 
-        body.dark-mode .entry-limiter-wrapper {
-            color: #cbd5e1;
-        }
-
+        body.dark-mode .entry-limiter-wrapper { color: #cbd5e1; }
         body.dark-mode .entry-limiter-select {
-            background-color: #0d0d0d;
-            color: #f1f5f9;
+            background-color: #0d0d0d; color: #f1f5f9;
             border-color: var(--brand-border-dark);
             background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23cbd5e1' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
         }
@@ -664,33 +627,22 @@
             color: #ffffff !important;
             border-color: var(--brand-border-dark) !important;
         }
+        body.dark-mode .search-input-wrapper input::placeholder { color: #64748b; }
 
-        body.dark-mode .search-input-wrapper input::placeholder {
-            color: #64748b;
-        }
+        body.dark-mode #fleetTable { color: #f1f5f9 !important; background-color: var(--brand-card-bg-dark) !important; }
 
-        body.dark-mode #fleetTable {
-            color: #f1f5f9 !important;
-            background-color: var(--brand-card-bg-dark) !important;
-        }
-
-        body.dark-mode #fleetTable thead th,
-        body.dark-mode table thead.bg-light th {
+        body.dark-mode #fleetTable thead th, body.dark-mode table thead.bg-light th {
             background-color: #1a1600 !important;
             color: var(--brand-yellow) !important;
             border-bottom: 2px solid var(--brand-border-dark) !important;
         }
 
-        body.dark-mode #fleetTable tbody tr {
-            background-color: var(--brand-row-bg-dark) !important;
-        }
-
+        body.dark-mode #fleetTable tbody tr { background-color: var(--brand-row-bg-dark) !important; }
         body.dark-mode #fleetTable td {
             background-color: var(--brand-row-bg-dark) !important;
             border-bottom: 1px solid var(--brand-border-dark) !important;
             color: #e2e8f0 !important;
         }
-
         body.dark-mode .table-hover > tbody > tr:hover > * {
             background-color: #262626 !important;
             color: #ffffff !important;
@@ -743,8 +695,7 @@
             border-color: var(--brand-border-dark) !important;
         }
 
-        body.dark-mode .modal-header,
-        body.dark-mode .modal-footer {
+        body.dark-mode .modal-header, body.dark-mode .modal-footer {
             background-color: var(--brand-card-bg-dark) !important;
             border-top-color: var(--brand-border-dark) !important;
             border-bottom-color: var(--brand-border-dark) !important;
@@ -765,33 +716,21 @@
             color: #ffffff !important;
         }
 
-        body.dark-mode .modal-body {
-            background-color: #0d0d0d !important;
-        }
+        body.dark-mode .modal-body { background-color: #0d0d0d !important; }
+        body.dark-mode .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
 
-        body.dark-mode .btn-close {
-            filter: invert(1) grayscale(100%) brightness(200%);
-        }
-
-        body.dark-mode .form-control,
-        body.dark-mode .form-select {
+        body.dark-mode .form-control, body.dark-mode .form-select {
             background-color: #171717 !important;
             border-color: var(--brand-border-dark) !important;
             color: #f8fafc !important;
         }
+        body.dark-mode .form-control::placeholder { color: #64748b !important; }
 
-        body.dark-mode .form-control::placeholder {
-            color: #64748b !important;
-        }
-
-        body.dark-mode #dropzoneContainer,
-        body.dark-mode [id^="editDropzoneContainer"] {
+        body.dark-mode #dropzoneContainer, body.dark-mode [id^="editDropzoneContainer"] {
             background-color: #121212 !important;
             border-color: var(--brand-border-dark) !important;
         }
-
-        body.dark-mode #dropzoneContainer:hover,
-        body.dark-mode [id^="editDropzoneContainer"]:hover {
+        body.dark-mode #dropzoneContainer:hover, body.dark-mode [id^="editDropzoneContainer"]:hover {
             border-color: var(--brand-yellow) !important;
             background-color: rgba(255, 204, 0, 0.05) !important;
         }
@@ -806,13 +745,9 @@
             color: var(--brand-yellow) !important;
         }
 
-        body.dark-mode .text-brand-yellow,
-        body.dark-mode .text-primary {
-            color: var(--brand-yellow) !important;
-        }
+        body.dark-mode .text-brand-yellow, body.dark-mode .text-primary { color: var(--brand-yellow) !important; }
 
-        body.dark-mode .icon-shape,
-        body.dark-mode .bg-brand-yellow,
+        body.dark-mode .icon-shape, body.dark-mode .bg-brand-yellow,
         body.dark-mode .stat-icon.bg-primary.bg-opacity-10 {
             background: rgba(255, 204, 0, 0.15) !important;
             color: var(--brand-yellow) !important;
@@ -829,36 +764,27 @@
                 background: var(--brand-card-bg-dark) !important;
                 border-color: var(--brand-border-dark);
             }
-            body.dark-mode #fleetTable td::before {
-                color: #cbd5e1;
-            }
+            body.dark-mode #fleetTable td::before { color: #cbd5e1; }
             body.dark-mode #fleetTable td:first-child {
                 border-bottom-color: var(--brand-border-dark) !important;
             }
         }
 
-        .form-control:focus,
-        .form-select:focus,
-        .search-input-wrapper input:focus,
-        .entry-limiter-select:focus {
+        .form-control:focus, .form-select:focus,
+        .search-input-wrapper input:focus, .entry-limiter-select:focus {
             border-color: #000000 !important;
             box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1) !important;
             outline: none !important;
         }
 
-        body.dark-mode .form-control:focus,
-        body.dark-mode .form-select:focus,
-        body.dark-mode .search-input-wrapper input:focus,
-        body.dark-mode .entry-limiter-select:focus {
+        body.dark-mode .form-control:focus, body.dark-mode .form-select:focus,
+        body.dark-mode .search-input-wrapper input:focus, body.dark-mode .entry-limiter-select:focus {
             border-color: var(--brand-yellow) !important;
             box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.25) !important;
             outline: none !important;
         }
 
-        header, 
-        nav, 
-        .navbar,
-        .main-content > div:first-child {
+        header, nav, .navbar, .main-content > div:first-child {
             width: 100% !important;
             max-width: 100% !important;
             margin-left: 0 !important;
@@ -885,15 +811,15 @@
             display: flex !important;
             flex-direction: column !important;
             width: 90% !important;
-            top:0;
-            left:5%;
+            top: 0;
+            left: 5%;
             position: relative !important;
             overflow: hidden !important;
         }
 
         .modal-body {
-            border-radius:10px;
-            margin:10px;
+            border-radius: 10px;
+            margin: 10px;
             flex: 1 1 auto !important;
             overflow-y: auto !important;
         }
@@ -910,41 +836,27 @@
             margin-top: 0 !important;
         }
 
-        .modal-footer .btn {
-            min-width: 120px;
-            margin: 0 !important;
-        }
+        .modal-footer .btn { min-width: 120px; margin: 0 !important; }
 
-        body.dark-mode .form-label {
-            color: #f1f5f9 !important;
-            font-weight: 600 !important;
-        }
+        body.dark-mode .form-label { color: #f1f5f9 !important; font-weight: 600 !important; }
 
-        body.dark-mode .form-control,
-        body.dark-mode .form-select {
+        body.dark-mode .form-control, body.dark-mode .form-select {
             background-color: #1a1a1a !important;
             border-color: #3f3f46 !important;
             color: #ffffff !important;
             font-size: 0.9rem !important;
         }
 
-        body.dark-mode .form-control:focus,
-        body.dark-mode .form-select:focus {
+        body.dark-mode .form-control:focus, body.dark-mode .form-select:focus {
             background-color: #141414 !important;
             border-color: var(--brand-yellow) !important;
             color: #ffffff !important;
             box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.25) !important;
         }
 
-        body.dark-mode input,
-        body.dark-mode select,
-        body.dark-mode textarea {
-            color: #ffffff !important;
-        }
+        body.dark-mode input, body.dark-mode select, body.dark-mode textarea { color: #ffffff !important; }
 
-        .alert-info-custom,
-        .badge-hint,
-        .main-photo-hint {
+        .alert-info-custom, .badge-hint, .main-photo-hint {
             background-color: var(--brand-yellow-soft) !important;
             color: #856404 !important;
             border: 1px solid #f1e6bc !important;
@@ -957,8 +869,7 @@
             gap: 0.35rem !important;
         }
 
-        body.dark-mode .alert-info-custom,
-        body.dark-mode .badge-hint,
+        body.dark-mode .alert-info-custom, body.dark-mode .badge-hint,
         body.dark-mode .main-photo-hint {
             background-color: rgba(255, 204, 0, 0.1) !important;
             color: var(--brand-yellow) !important;
@@ -966,8 +877,7 @@
         }
 
         .vehicle-img-btn {
-            width: 90px;
-            height: 65px;
+            width: 90px; height: 65px;
             border-radius: 10px;
             overflow: hidden;
             background: #f8fafc;
@@ -982,18 +892,11 @@
             box-shadow: 0 4px 12px rgba(13, 110, 253, 0.25) !important;
         }
 
-        .vehicle-thumb-img {
-            object-fit: cover;
-            transition: transform 0.3s ease;
-        }
-
-        .vehicle-img-btn:hover .vehicle-thumb-img {
-            transform: scale(1.08);
-        }
+        .vehicle-thumb-img { object-fit: cover; transition: transform 0.3s ease; }
+        .vehicle-img-btn:hover .vehicle-thumb-img { transform: scale(1.08); }
 
         .gallery-hover-overlay {
-            position: absolute;
-            inset: 0;
+            position: absolute; inset: 0;
             background: rgba(15, 23, 42, 0.65);
             backdrop-filter: blur(2px);
             opacity: 0;
@@ -1001,43 +904,20 @@
             z-index: 2;
         }
 
-        .vehicle-img-btn:hover .gallery-hover-overlay {
-            opacity: 1;
-        }
+        .vehicle-img-btn:hover .gallery-hover-overlay { opacity: 1; }
 
-        .gallery-badge {
-            z-index: 3;
-            transition: opacity 0.2s ease;
-        }
+        .gallery-badge { z-index: 3; transition: opacity 0.2s ease; }
+        .vehicle-img-btn:hover .gallery-badge { opacity: 0; }
 
-        .vehicle-img-btn:hover .gallery-badge {
-            opacity: 0;
-        }
+        .btn-white { background-color: #fff; }
+        .btn-white:hover { background-color: #f8fafc; }
 
-        .btn-white {
-            background-color: #fff;
-        }
-        .btn-white:hover {
-            background-color: #f8fafc;
-        }
+        .car-title-text, .rate-title-text, .ext-rate-value { color: #0f172a; }
 
-        .car-title-text,
-        .rate-title-text,
-        .ext-rate-value {
-            color: #0f172a;
-        }
+        .owner-info-text { color: #334155; }
+        .owner-info-text i { color: #64748b; }
 
-        .owner-info-text {
-            color: #334155;
-        }
-        .owner-info-text i {
-            color: #64748b;
-        }
-
-        .specs-text-group,
-        .ext-rate-label {
-            color: #64748b;
-        }
+        .specs-text-group, .ext-rate-label { color: #64748b; }
 
         .vehicle-type-badge {
             background-color: #f8fafc;
@@ -1072,23 +952,13 @@
             border: 1px solid #cbd5e1;
         }
 
-        body.dark-mode .car-title-text,
-        body.dark-mode .rate-title-text,
-        body.dark-mode .ext-rate-value {
-            color: #f8fafc !important;
-        }
+        body.dark-mode .car-title-text, body.dark-mode .rate-title-text,
+        body.dark-mode .ext-rate-value { color: #f8fafc !important; }
 
-        body.dark-mode .owner-info-text {
-            color: #e2e8f0 !important;
-        }
-        body.dark-mode .owner-info-text i {
-            color: #94a3b8 !important;
-        }
+        body.dark-mode .owner-info-text { color: #e2e8f0 !important; }
+        body.dark-mode .owner-info-text i { color: #94a3b8 !important; }
 
-        body.dark-mode .specs-text-group,
-        body.dark-mode .ext-rate-label {
-            color: #cbd5e1 !important;
-        }
+        body.dark-mode .specs-text-group, body.dark-mode .ext-rate-label { color: #cbd5e1 !important; }
 
         body.dark-mode .vehicle-type-badge {
             background-color: #1a1a1a !important;
@@ -1140,10 +1010,8 @@
 
         .gallery-hover-overlay {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             background-color: rgba(15, 23, 42, 0.75);
             opacity: 0;
             visibility: hidden;
@@ -1151,23 +1019,11 @@
             z-index: 3;
         }
 
-        .gallery-hover-overlay i {
-            font-size: 14px;
-        }
+        .gallery-hover-overlay i { font-size: 14px; }
+        .gallery-hover-text { font-size: 8px; letter-spacing: 0.5px; }
 
-        .gallery-hover-text {
-            font-size: 8px;
-            letter-spacing: 0.5px;
-        }
-
-        .vehicle-img-btn:hover .gallery-hover-overlay {
-            opacity: 1;
-            visibility: visible;
-        }
-
-        .vehicle-img-btn:hover .vehicle-thumb-img {
-            transform: scale(1.08);
-        }
+        .vehicle-img-btn:hover .gallery-hover-overlay { opacity: 1; visibility: visible; }
+        .vehicle-img-btn:hover .vehicle-thumb-img { transform: scale(1.08); }
 
         .gallery-badge {
             font-size: 11px;
@@ -1179,9 +1035,7 @@
             z-index: 2;
         }
 
-        .gallery-badge i {
-            font-size: 10px;
-        }
+        .gallery-badge i { font-size: 10px; }
     </style>
 
     <script>
@@ -1297,6 +1151,7 @@
                                         <tr>
                                             <th class="ps-4 py-3">Vehicle</th>
                                             <?php if ($user_role === 'admin'): ?><th>Owner</th><?php endif; ?>
+                                            <th>Branch</th>
                                             <th>Specs</th>
                                             <th>Plate No.</th>
                                             <th>Rates & Splits (10h / 12h / 24h)</th>
@@ -1364,6 +1219,17 @@
                                                 </td>
                                             <?php endif; ?>
 
+                                            <td data-title="Branch">
+                                                <?php 
+                                                    $bName = branchNameById($car['branch_id'] ?? null, $branches_list);
+                                                    if ($bName) {
+                                                        echo '<span class="badge vehicle-type-badge border fw-semibold" style="font-size: 11px;"><i class="bi bi-shop me-1"></i>' . htmlspecialchars($bName) . '</span>';
+                                                    } else {
+                                                        echo '<span class="text-muted small fst-italic">No branch</span>';
+                                                    }
+                                                ?>
+                                            </td>
+
                                             <td data-title="Specs">
                                                 <div class="d-flex flex-column gap-1 small specs-text-group">
                                                     <div><i class="bi bi-gear-wide-connected me-1 text-primary"></i><?= htmlspecialchars($car['transmission'] ?? 'N/A') ?></div>
@@ -1416,14 +1282,48 @@
                                             <td class="text-center" data-title="Status">
                                                 <?php 
                                                     $status = (($car['status'] ?? '') == 'Rented') ? 'Active' : ($car['status'] ?? 'Available');
-                                                    $class = match($status) { 
-                                                        'Available' => 'status-badge-available', 
-                                                        'Active' => 'status-badge-active', 
+                                                    
+                                                    $schedState = getScheduleState($car['id'], $schedules_map);
+                                                    $isScheduled = ($schedState && $schedState['state'] === 'active');
+                                                    
+                                                    $displayStatus = $isScheduled ? 'Unavailable' : $status;
+                                                    
+                                                    $class = match($displayStatus) { 
+                                                        'Available'   => 'status-badge-available', 
+                                                        'Active'      => 'status-badge-active', 
                                                         'Maintenance' => 'status-badge-maintenance', 
-                                                        default => 'status-badge-default' 
+                                                        'Unavailable' => 'status-badge-maintenance',
+                                                        default       => 'status-badge-default' 
                                                     };
                                                 ?>
-                                                <span class="badge rounded-pill px-3 py-1.5 <?= $class ?>" style="min-width: 90px; font-size: 11px; font-weight: 600;"><?= $status ?></span>
+                                                <div class="d-flex flex-column align-items-center gap-1">
+                                                    <span class="badge rounded-pill px-3 py-1.5 <?= $class ?>" style="min-width: 90px; font-size: 11px; font-weight: 600;">
+                                                        <?= $displayStatus ?>
+                                                    </span>
+
+                                                    <?php if ($schedState): 
+                                                        $s = $schedState['schedule'];
+                                                        $reason = $s['reason'];
+                                                        $reasonIcon = match($reason) {
+                                                            'Maintenance'  => '🔧',
+                                                            'Personal Use' => '👤',
+                                                            'Unavailable'  => '🚫',
+                                                            default        => '❓',
+                                                        };
+                                                    ?>
+                                                        <?php if ($schedState['state'] === 'active'): ?>
+                                                            <span class="extra-small fw-semibold" style="font-size: 10px; color: #dc2626;">
+                                                                <?= $reasonIcon ?> <?= htmlspecialchars($reason) ?>
+                                                            </span>
+                                                        <?php else: 
+                                                            $daysUntil = floor((strtotime($s['start_date']) - strtotime(date('Y-m-d'))) / 86400);
+                                                        ?>
+                                                            <span class="extra-small fw-semibold" style="font-size: 10px; color: #f59e0b;">
+                                                                <?= $reasonIcon ?> in <?= (int)$daysUntil ?> day<?= (int)$daysUntil === 1 ? '' : 's' ?>
+                                                            </span>
+                                                        <?php endif; ?>
+                                                    <?php endif; ?>
+                                                </div>
                                             </td>
 
                                             <?php if ($user_role === 'admin'): ?>
@@ -1443,7 +1343,7 @@
                                         
                                         <?php if (empty($cars)): ?>
                                         <tr class="js-empty-state-row">
-                                            <td colspan="<?= $user_role === 'admin' ? '8' : '7' ?>" class="text-center py-5 text-muted">
+                                            <td colspan="<?= $user_role === 'admin' ? '9' : '8' ?>" class="text-center py-5 text-muted">
                                                 <div class="py-4">
                                                     <i class="bi bi-car-front fs-1 d-block mb-3 opacity-25"></i>
                                                     <h6 class="fw-bold mb-1">No Vehicles Found</h6>
@@ -1577,6 +1477,60 @@
                             <input type="text" name="plate_number" class="form-control text-uppercase" placeholder="ABC-1234" required>
                         </div>
 
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">
+                                <i class="bi bi-shop me-1 text-primary"></i> Branch
+                            </label>
+                            <select name="branch_id" class="form-select">
+                                <option value="">— No Branch —</option>
+                                <?php foreach ($branches_list as $b): ?>
+                                    <option value="<?= $b['id'] ?>"><?= htmlspecialchars($b['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-text mt-1" style="font-size: 11.5px;">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Which location does this vehicle belong to?
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">
+                                <i class="bi bi-person-badge me-1 text-success"></i> Assign to Operator
+                            </label>
+                            <input type="hidden" name="user_id" id="add_car_operator_id" value="">
+
+                            <div class="dropdown">
+                                <button class="form-select text-start d-flex justify-content-between align-items-center w-100" 
+                                        type="button" 
+                                        id="operatorDropdownBtn" 
+                                        data-bs-toggle="dropdown" 
+                                        data-bs-auto-close="outside" 
+                                        aria-expanded="false">
+                                    <span id="selectedOperatorLabel" class="text-muted">Select Operator (optional)</span>
+                                    <i class="bi bi-chevron-down small text-muted"></i>
+                                </button>
+
+                                <div class="dropdown-menu w-100 p-2 shadow-lg rounded-3" aria-labelledby="operatorDropdownBtn">
+                                    <div class="mb-2">
+                                        <input type="text" 
+                                            class="form-control form-control-sm" 
+                                            id="operatorSearchInput" 
+                                            placeholder="Search operator by name or email...">
+                                    </div>
+                                    <div id="operatorOptionsList" style="max-height: 220px; overflow-y: auto;"></div>
+                                    <div class="dropdown-divider"></div>
+                                    <a class="dropdown-item rounded-2 py-1.5 small text-muted" data-value="" id="operatorNoneOption">
+                                        <i class="bi bi-x-circle me-1"></i> Unassigned (Company-owned)
+                                    </a>
+                                </div>
+                            </div>
+
+                            <div class="form-text mt-1" style="font-size: 11.5px;">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Leave unassigned if this car is owned by the company. Assigned cars appear in the operator's fleet and their earnings are tracked separately.
+                            </div>
+                        </div>
+
                         <div class="col-12"><hr class="my-2"></div>
                         <div class="col-12"><h6 class="fw-bold text-muted mb-1">Base Tier Tariffs & Shares</h6></div>
 
@@ -1655,7 +1609,6 @@
                     </div>
                     
                     <div class="border border-dashed rounded-4 p-3 text-center position-relative transition-all" id="editDropzoneContainer<?= $car['id'] ?>" style="border-width: 2px !important;">
-                        <!-- CRITICAL FIX: Added name="car_images[]" -->
                         <input type="file" id="editStashImageInput<?= $car['id'] ?>" name="car_images[]" class="position-absolute top-0 start-0 w-100 h-100 opacity-0" style="cursor: pointer; z-index: 5;" accept="image/*" multiple>
                         
                         <div id="editStashPreviewRow<?= $car['id'] ?>" class="row g-2 justify-content-start align-items-stretch" style="max-height: 260px; overflow-y: auto; position: relative; z-index: 10;">
@@ -1780,6 +1733,18 @@
                         </select>
                     </div>
 
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Branch</label>
+                        <select name="branch_id" class="form-select">
+                            <option value="">— No Branch —</option>
+                            <?php foreach ($branches_list as $b): ?>
+                                <option value="<?= $b['id'] ?>" <?= ((int)($car['branch_id'] ?? 0) === (int)$b['id']) ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($b['name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
                     <div class="col-12"><hr class="my-2"></div>
                     <div class="col-12"><h6 class="fw-bold text-muted mb-1">Base Tier Tariffs & Shares</h6></div>
 
@@ -1898,7 +1863,7 @@
                 if ($('.js-no-results-fallback').length === 0) {
                     $('#fleetTable tbody').append(`
                         <tr class="js-no-results-fallback">
-                            <td colspan="<?= $user_role === 'admin' ? '8' : '7' ?>" class="text-center py-4 text-muted">
+                            <td colspan="<?= $user_role === 'admin' ? '9' : '8' ?>" class="text-center py-4 text-muted">
                                 <i class="bi bi-search fs-3 d-block mb-2 opacity-50"></i>
                                 No matching vehicles found for "${$('#unifiedFleetSearch').val()}".
                             </td>
@@ -2016,10 +1981,8 @@
     }
 
     // ============================================================
-    // EDIT CAR MODAL - PHOTO MANAGEMENT (FIXED)
+    // EDIT CAR MODAL - PHOTO MANAGEMENT
     // ============================================================
-
-    // Global stash for new photos
     window.editImageStashMap = window.editImageStashMap || {};
 
     function updateBadge(carId) {
@@ -2043,7 +2006,6 @@
         
         if (!previewRow) return;
 
-        // Remove only new photo previews
         const newPreviews = previewRow.querySelectorAll('.new-photo-preview');
         newPreviews.forEach(el => el.remove());
 
@@ -2099,9 +2061,6 @@
         updateBadge(carId);
     }
 
-    // ============================================================
-    // FILE INPUT CHANGE HANDLER - FIXED (DO NOT CLEAR INPUT)
-    // ============================================================
     document.addEventListener('change', function(e) {
         const input = e.target;
         if (input.id && input.id.startsWith('editStashImageInput')) {
@@ -2128,15 +2087,9 @@
                 renderEditStashGallery(carId);
                 updateBadge(carId);
             }
-            
-            // ✅ CRITICAL FIX: DO NOT clear the input value!
-            // The files must stay in the input to be submitted with the form
         }
     });
 
-    // ============================================================
-    // CLICK HANDLER FOR "ADD MORE PHOTOS" BUTTON
-    // ============================================================
     document.addEventListener('click', function(e) {
         const slot = e.target.closest('[id^="inlineUploadSlot"]');
         if (slot) {
@@ -2150,9 +2103,6 @@
         }
     });
 
-    // ============================================================
-    // MARK EXISTING IMAGE FOR DELETION
-    // ============================================================
     window.markExistingForDeletion = function(imagePath, containerId, carId) {
         if (confirm("Are you sure you want to permanently delete this photo?")) {
             const container = document.getElementById('removedImagesContainer' + carId);
@@ -2175,45 +2125,10 @@
         }
     };
 
-    // ============================================================
-    // FORM SUBMIT HANDLER - SIMPLIFIED
-    // ============================================================
-    document.addEventListener('submit', function(e) {
-        const form = e.target;
-        if (form.id && form.id.startsWith('vehicleEditForm')) {
-            const carId = form.id.replace('vehicleEditForm', '');
-            const currentStash = window.editImageStashMap[carId] || [];
-            
-            console.log('🚗 Submitting form for car:', carId);
-            console.log('📸 New photos in stash:', currentStash.length);
-            
-            // The files are already in the file input because we didn't clear it!
-            const fileInput = document.getElementById('editStashImageInput' + carId);
-            if (fileInput && fileInput.files.length > 0) {
-                console.log('✅ File input has', fileInput.files.length, 'files:');
-                for (let i = 0; i < fileInput.files.length; i++) {
-                    console.log('  - ' + fileInput.files[i].name + ' (' + fileInput.files[i].size + ' bytes)');
-                }
-            } else if (fileInput) {
-                console.log('⚠️ File input is empty (no files selected)');
-            }
-            
-            // Clear the stash after submission (files are already in the input)
-            if (currentStash.length > 0) {
-                // Don't clear here - let the form submit naturally with the files
-                // The files are in the input, so they'll be submitted
-            }
-        }
-    });
-
-    // ============================================================
-    // MODAL INITIALIZATION
-    // ============================================================
     document.querySelectorAll('[id^="editCarModal"]').forEach(modal => {
         modal.addEventListener('shown.bs.modal', function() {
             const carId = this.id.replace('editCarModal', '');
             
-            // Initialize stash if not exists
             if (!window.editImageStashMap[carId]) {
                 window.editImageStashMap[carId] = [];
             }
@@ -2221,7 +2136,6 @@
             renderEditStashGallery(carId);
         });
     });
-
     <?php endif; ?>
 
     // ============================================================
@@ -2389,7 +2303,6 @@
         }
 
     <?php if ($user_role === 'admin'): ?>
-        // ADD CAR MODAL - CAR TYPE
         const optionsList = document.getElementById('carTypeOptionsList');
         const searchInput = document.getElementById('carTypeSearchInput');
         const selectedLabel = document.getElementById('selectedCarTypeLabel');
@@ -2547,7 +2460,6 @@
             if (dropdown) dropdown.hide();
         });
 
-        // EDIT CAR MODAL - CAR TYPE
         function renderEditCarTypeOptions() {
             document.querySelectorAll('.car-type-edit-options').forEach(container => {
                 const carId = container.getAttribute('data-car-id');
@@ -2754,4 +2666,118 @@
         renderEditCarTypeOptions();
     <?php endif; ?>
     });
-</script>
+
+    // ============================================================
+    // OPERATOR DROPDOWN LOGIC (ADD CAR MODAL)
+    // ============================================================
+    const operators = <?= json_encode($operators_list) ?>;
+    const operatorOptionsList = document.getElementById('operatorOptionsList');
+    const operatorSearchInput = document.getElementById('operatorSearchInput');
+    const selectedOperatorLabel = document.getElementById('selectedOperatorLabel');
+    const addCarOperatorHidden = document.getElementById('add_car_operator_id');
+
+    function renderOperatorOptions(filter = '') {
+        if (!operatorOptionsList) return;
+        operatorOptionsList.innerHTML = '';
+
+        const query = filter.toLowerCase().trim();
+        const filtered = operators.filter(op => {
+            const name = (op.name || '').toLowerCase();
+            const email = (op.email || '').toLowerCase();
+            return name.includes(query) || email.includes(query);
+        });
+
+        if (filtered.length === 0) {
+            operatorOptionsList.innerHTML = `<div class="text-muted small p-2 text-center">
+                <i class="bi bi-search d-block mb-1 opacity-50"></i>
+                No operator found
+            </div>`;
+            return;
+        }
+
+        filtered.forEach(op => {
+            const item = document.createElement('a');
+            item.className = 'dropdown-item rounded-2 py-2';
+            item.href = '#';
+            item.setAttribute('data-operator-id', op.id);
+            item.setAttribute('data-operator-name', op.name || '');
+            item.innerHTML = `
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-circle bg-success bg-opacity-10 d-flex align-items-center justify-content-center flex-shrink-0" 
+                         style="width: 32px; height: 32px;">
+                        <i class="bi bi-person-fill text-success" style="font-size: 0.9rem;"></i>
+                    </div>
+                    <div class="lh-sm flex-grow-1 overflow-hidden">
+                        <div class="fw-semibold small text-truncate">${escapeHtml(op.name || 'Unnamed')}</div>
+                        <div class="extra-small text-muted text-truncate" style="font-size: 11px;">${escapeHtml(op.email || '')}</div>
+                    </div>
+                </div>
+            `;
+
+            item.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const opId = this.getAttribute('data-operator-id');
+                const opName = this.getAttribute('data-operator-name');
+
+                if (addCarOperatorHidden) addCarOperatorHidden.value = opId;
+                if (selectedOperatorLabel) {
+                    selectedOperatorLabel.textContent = opName;
+                    selectedOperatorLabel.classList.remove('text-muted');
+                    selectedOperatorLabel.classList.add('fw-semibold');
+                }
+
+                const dropdown = bootstrap.Dropdown.getInstance(document.getElementById('operatorDropdownBtn'));
+                if (dropdown) dropdown.hide();
+            });
+
+            operatorOptionsList.appendChild(item);
+        });
+    }
+
+    if (typeof escapeHtml !== 'function') {
+        window.escapeHtml = function (str) {
+            const div = document.createElement('div');
+            div.textContent = str == null ? '' : String(str);
+            return div.innerHTML;
+        };
+    }
+
+    if (operatorSearchInput) {
+        operatorSearchInput.addEventListener('input', function () {
+            renderOperatorOptions(this.value);
+        });
+    }
+
+    const noneOption = document.getElementById('operatorNoneOption');
+    if (noneOption) {
+        noneOption.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (addCarOperatorHidden) addCarOperatorHidden.value = '';
+            if (selectedOperatorLabel) {
+                selectedOperatorLabel.textContent = 'Select Operator (optional)';
+                selectedOperatorLabel.classList.add('text-muted');
+                selectedOperatorLabel.classList.remove('fw-semibold');
+            }
+
+            const dropdown = bootstrap.Dropdown.getInstance(document.getElementById('operatorDropdownBtn'));
+            if (dropdown) dropdown.hide();
+        });
+    }
+
+    document.getElementById('addCarModal')?.addEventListener('hidden.bs.modal', function () {
+        if (addCarOperatorHidden) addCarOperatorHidden.value = '';
+        if (selectedOperatorLabel) {
+            selectedOperatorLabel.textContent = 'Select Operator (optional)';
+            selectedOperatorLabel.classList.add('text-muted');
+            selectedOperatorLabel.classList.remove('fw-semibold');
+        }
+        if (operatorSearchInput) operatorSearchInput.value = '';
+        renderOperatorOptions();
+    });
+
+    renderOperatorOptions();
+    </script>

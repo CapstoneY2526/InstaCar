@@ -2,6 +2,12 @@
 session_start();
 require_once __DIR__ . '/../../config/database.php';
 
+// ── Aggressive anti-cache headers ──
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
+header("Expires: 0");
+
 // Auth Check - JS Redirect
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     $_SESSION['error'] = "Access denied.";
@@ -41,18 +47,16 @@ $history_query = "SELECT b.id as booking_id, c.brand, c.model, p.remitted_amount
 
 $history_res = mysqli_query($conn, $history_query);
 
-// Error Checking for both queries
+// Error Checking
 if (!$summary_res || !$history_res) {
     die("Database Error: " . mysqli_error($conn));
 }
 
-// Fetch Summary Data into array FIRST
 $summaries = [];
 while ($row = mysqli_fetch_assoc($summary_res)) {
     $summaries[] = $row;
 }
 
-// Fetch History Data into array
 $history = [];
 while ($row = mysqli_fetch_assoc($history_res)) {
     $history[] = $row;
@@ -61,15 +65,11 @@ while ($row = mysqli_fetch_assoc($history_res)) {
 
 <?php require_once __DIR__ . '/../components/head.php'; ?>
 
-<!-- Google Font: Inter -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-    /* ========================================================
-       BASE LIGHT/DARK LAYOUT & COMPONENT OVERRIDES
-       ======================================================== */
     body, 
     button, 
     input, 
@@ -95,7 +95,6 @@ while ($row = mysqli_fetch_assoc($history_res)) {
     .owner-balance-box { background: #f0f9ff; border: 1px solid #bae6fd; }
     .extra-small { font-size: 0.7rem; }
     
-    /* Responsive Offcanvas Architecture for Mobile Viewports */
     @media (max-width: 991.98px) {
         .main-content-padding { padding: 1.25rem !important; }
         .payout-header { flex-direction: column; align-items: flex-start !important; gap: 0.75rem; }
@@ -115,9 +114,7 @@ while ($row = mysqli_fetch_assoc($history_res)) {
             display: block !important;
         }
 
-        .mobile-sidebar-container.show {
-            left: 0 !important;
-        }
+        .mobile-sidebar-container.show { left: 0 !important; }
 
         .sidebar-backdrop {
             position: fixed;
@@ -132,13 +129,9 @@ while ($row = mysqli_fetch_assoc($history_res)) {
             transition: opacity 0.25s linear;
         }
         
-        .sidebar-backdrop.show {
-            display: block;
-            opacity: 1;
-        }
+        .sidebar-backdrop.show { display: block; opacity: 1; }
     }
 
-    /* Standard Primary Button Accent (Yellow Variant) */
     .btn-warning-action, .btn-primary, .btn-submit-action {
         background-color: #ffcc00 !important;
         border-color: #ffcc00 !important;
@@ -151,16 +144,13 @@ while ($row = mysqli_fetch_assoc($history_res)) {
         color: #000000 !important;
     }
 
-    /* ========================================================
-       DARK MODE COMPLETE OVERRIDES & CONTRAST FIXES
-       ======================================================== */
+    /* DARK MODE */
     body.dark-mode,
     body.dark-mode .main-content {
         background-color: #0a0a0a !important;
         color: #f1f5f9 !important;
     }
 
-    /* Header & Footer Components */
     body.dark-mode header,
     body.dark-mode navbar,
     body.dark-mode .navbar,
@@ -173,27 +163,20 @@ while ($row = mysqli_fetch_assoc($history_res)) {
 
     body.dark-mode footer p,
     body.dark-mode header span,
-    body.dark-mode header p {
-        color: #a1a1aa !important;
-    }
+    body.dark-mode header p { color: #a1a1aa !important; }
 
-    /* Mobile Sidebar Dark Overrides */
     body.dark-mode .mobile-sidebar-container {
         background-color: #141414 !important;
         border-right: 1px solid #27272a !important;
     }
 
-    /* Typography & High-Contrast Overrides */
     body.dark-mode .text-dark,
     body.dark-mode h3,
     body.dark-mode h4,
     body.dark-mode h5,
     body.dark-mode h6,
-    body.dark-mode label {
-        color: #ffffff !important;
-    }
+    body.dark-mode label { color: #ffffff !important; }
 
-    /* Fix invisible muted/secondary text like P0.00 */
     body.dark-mode .text-muted,
     body.dark-mode .text-secondary,
     body.dark-mode span:not(.badge):not(.text-success):not(.text-primary):not(.text-warning) {
@@ -201,25 +184,17 @@ while ($row = mysqli_fetch_assoc($history_res)) {
     }
 
     body.dark-mode code.text-primary,
-    body.dark-mode .text-primary {
-        color: #38bdf8 !important;
-    }
+    body.dark-mode .text-primary { color: #38bdf8 !important; }
 
-    body.dark-mode .text-success {
-        color: #22c55e !important;
-    }
+    body.dark-mode .text-success { color: #22c55e !important; }
 
-    /* Dark Mode Pending Badge Fix */
     body.dark-mode .bg-warning-subtle {
         background-color: #451a03 !important;
         border: 1px solid #78350f !important;
     }
 
-    body.dark-mode .bg-warning-subtle.text-warning {
-        color: #fde047 !important;
-    }
+    body.dark-mode .bg-warning-subtle.text-warning { color: #fde047 !important; }
 
-    /* Cards & Container Surfaces */
     body.dark-mode .card,
     body.dark-mode .remit-card {
         background-color: #141414 !important;
@@ -232,9 +207,7 @@ while ($row = mysqli_fetch_assoc($history_res)) {
         border-left: 4px solid #f59e0b !important;
     }
 
-    body.dark-mode .jerry-fee-box .text-warning-emphasis {
-        color: #fcd34d !important;
-    }
+    body.dark-mode .jerry-fee-box .text-warning-emphasis { color: #fcd34d !important; }
 
     body.dark-mode .owner-balance-box {
         background-color: #0c1a24 !important;
@@ -242,26 +215,17 @@ while ($row = mysqli_fetch_assoc($history_res)) {
     }
 
     body.dark-mode .owner-balance-box h4,
-    body.dark-mode .owner-balance-box small {
-        color: #38bdf8 !important;
-    }
+    body.dark-mode .owner-balance-box small { color: #38bdf8 !important; }
 
-    /* List Group & Remittance History */
     body.dark-mode .list-group-item {
         background-color: #141414 !important;
         border-color: #27272a !important;
         color: #f1f5f9 !important;
     }
 
-    body.dark-mode .list-group-item .text-dark {
-        color: #ffffff !important;
-    }
+    body.dark-mode .list-group-item .text-dark { color: #ffffff !important; }
+    body.dark-mode .list-group-item .border-bottom { border-color: #27272a !important; }
 
-    body.dark-mode .list-group-item .border-bottom {
-        border-color: #27272a !important;
-    }
-
-    /* Modal Dark Theme Styles */
     body.dark-mode .modal-content {
         background-color: #141414 !important;
         border: 1px solid #27272a !important;
@@ -283,7 +247,6 @@ while ($row = mysqli_fetch_assoc($history_res)) {
         color: #ffffff !important;
     }
 
-    /* Input & Placeholder High-Contrast Fixes */
     body.dark-mode .form-control,
     body.dark-mode textarea {
         background-color: #1a1f26 !important;
@@ -305,7 +268,6 @@ while ($row = mysqli_fetch_assoc($history_res)) {
         box-shadow: 0 0 0 0.25rem rgba(255, 204, 0, 0.2) !important;
     }
 
-    /* Action Buttons in Dark Mode */
     body.dark-mode .btn-white {
         background-color: #141414 !important;
         color: #f1f5f9 !important;
@@ -342,11 +304,11 @@ while ($row = mysqli_fetch_assoc($history_res)) {
                             <h3 class="fw-bold mb-0 text-dark">Remittance</h3>
                             <i class="bi bi-cash-stack text-success fs-4"></i>
                         </div>
-                        <p class="text-muted mb-0 small">Manage payouts and delivery fee settlements.</p>
+                        <p class="text-muted mb-0 small">Manage payouts and staff fee settlements.</p>
                     </div>
                     
                     <div class="mt-2 mt-md-0">
-                        <button class="btn btn-white shadow-sm btn-sm rounded-3 px-3 border" onclick="location.reload()">
+                        <button class="btn btn-white shadow-sm btn-sm rounded-3 px-3 border" onclick="window.location.href='remittance.php?v=' + Date.now()">
                             <i class="bi bi-arrow-repeat me-1"></i> Refresh
                         </button>
                     </div>
@@ -376,12 +338,12 @@ while ($row = mysqli_fetch_assoc($history_res)) {
                                             <?php if($row['total_jerry_fees'] > 0): ?>
                                             <div class="p-3 rounded-3 mb-3 jerry-fee-box">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                                    <span class="text-warning-emphasis fw-bold extra-small text-uppercase"> Delivery Fees</span>
+                                                    <span class="text-warning-emphasis fw-bold extra-small text-uppercase"> Staff Fees</span>
                                                     <span class="fw-bold text-dark">₱<?= number_format($row['total_jerry_fees'], 2) ?></span>
                                                 </div>
                                                 <form action="process/clear_jerry_fees.php" method="POST">
                                                     <input type="hidden" name="car_id" value="<?= $row['id'] ?>">
-                                                    <button type="submit" class="btn btn-sm btn-warning w-100 fw-bold py-1 shadow-sm" style="font-size: 0.7rem;" onclick="return confirm('Clear delivery fees? This will mark them as paid.')">
+                                                    <button type="submit" class="btn btn-sm btn-warning w-100 fw-bold py-1 shadow-sm" style="font-size: 0.7rem;" onclick="return confirm('Clear staff fees? This will mark them as paid.')">
                                                         <i class="bi bi-person-check me-1"></i> CLEAR FEE
                                                     </button>
                                                 </form>
@@ -469,7 +431,7 @@ while ($row = mysqli_fetch_assoc($history_res)) {
     </div>
 </div>
 
-<!-- Modal Form - Dark Themed with Yellow Submit Action -->
+<!-- Modal Form -->
 <div class="modal fade" id="remitModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <form action="process/save_remit_action.php" method="POST" class="modal-content border-0 shadow-lg rounded-4">

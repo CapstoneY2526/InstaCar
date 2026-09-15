@@ -53,6 +53,13 @@ $query = "SELECT b.*,
 
 if ($user_role === 'operator') {
     $query .= " AND c.user_id = $user_id";
+} elseif ($user_role === 'staff') {
+    $branch_id = (int)($_SESSION['branch_id'] ?? 0);
+    if ($branch_id > 0) {
+        $query .= " AND c.branch_id = $branch_id";
+    } else {
+        $query .= " AND 1=0";
+    }
 } elseif ($user_role === 'user') {
     $query .= " AND b.user_id = $user_id";
 }
@@ -84,9 +91,6 @@ require_once __DIR__ . '/../components/head.php';
 
 $car_images = explode(',', $booking['car_image_path']);
 $first_car_image = trim($car_images[0]);
-
-// Debug info - remove after testing
-// echo "<!-- Image path: " . asset('public/assets/images/cars/' . $first_car_image) . " -->";
 ?>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -371,10 +375,11 @@ $first_car_image = trim($car_images[0]);
                 <div>
                     <?php 
                         $badgeClasses = match($booking['status']) {
-                            'Approved' => 'bg-success-subtle text-success border border-success-subtle',
-                            'Pending' => 'bg-warning-subtle text-dark border border-warning-subtle',
+                            'Confirmed' => 'bg-info-subtle text-info border border-info-subtle',
+                            'Pending'   => 'bg-warning-subtle text-dark border border-warning-subtle',
                             'Completed' => 'bg-success-subtle text-success border border-success-subtle',
-                            default => 'bg-danger-subtle text-danger border border-danger-subtle'
+                            'Cancelled' => 'bg-danger-subtle text-danger border border-danger-subtle',
+                            default     => 'bg-secondary-subtle text-secondary border border-secondary-subtle'
                         };
                     ?>
                     <span class="status-pill <?= $badgeClasses ?>">
@@ -480,7 +485,8 @@ $first_car_image = trim($car_images[0]);
                                         ?>
                                             <div class="col-4 col-sm-3">
                                                 <div class="cust-photo-card border rounded-3 overflow-hidden shadow-sm bg-dark text-center">
-                                                    <!-- Delete Photo Form -->
+                                                    <?php if ($user_role !== 'user'): ?>
+                                                    <!-- Delete Photo Form (staff/admin/operator only) -->
                                                     <form action="process/delete_customer_item.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this document?');">
                                                         <input type="hidden" name="type" value="photo">
                                                         <input type="hidden" name="photo_id" value="<?= $photo['id'] ?>">
@@ -490,6 +496,7 @@ $first_car_image = trim($car_images[0]);
                                                             <i class="bi bi-x"></i>
                                                         </button>
                                                     </form>
+                                                    <?php endif; ?>
 
                                                     <a href="<?= $filePath ?>" target="_blank" class="d-flex flex-column align-items-center justify-content-center h-100 text-decoration-none p-2">
                                                         <?php if ($isPdf): ?>
@@ -524,7 +531,8 @@ $first_car_image = trim($car_images[0]);
                                                     <div class="d-flex align-items-center gap-2">
                                                         <small class="text-muted" style="font-size: 0.75rem;"><?= date('M d, Y h:i A', strtotime($remark['created_at'])) ?></small>
                                                         
-                                                        <!-- Delete Remark Form -->
+                                                        <?php if ($user_role !== 'user'): ?>
+                                                        <!-- Delete Remark Form (staff/admin/operator only) -->
                                                         <form action="process/delete_customer_item.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this note?');" class="d-inline">
                                                             <input type="hidden" name="type" value="remark">
                                                             <input type="hidden" name="remark_id" value="<?= $remark['id'] ?>">
@@ -533,6 +541,7 @@ $first_car_image = trim($car_images[0]);
                                                                 <i class="bi bi-trash-fill"></i>
                                                             </button>
                                                         </form>
+                                                        <?php endif; ?>
                                                     </div>
                                                 </div>
                                                 <p class="mb-0 small"><?= nl2br(htmlspecialchars($remark['remark'])) ?></p>
@@ -592,7 +601,7 @@ $first_car_image = trim($car_images[0]);
                             <div class="mb-3">
                                 <select name="status" class="form-select form-select-custom">
                                     <option value="Pending" <?= $booking['status'] == 'Pending' ? 'selected' : '' ?>>Pending</option>
-                                    <option value="Approved" <?= $booking['status'] == 'Approved' ? 'selected' : '' ?>>Approved</option>
+                                    <option value="Confirmed" <?= $booking['status'] == 'Confirmed' ? 'selected' : '' ?>>Confirmed</option>
                                     <option value="Completed" <?= $booking['status'] == 'Completed' ? 'selected' : '' ?>>Completed</option>
                                     <option value="Cancelled" <?= $booking['status'] == 'Cancelled' ? 'selected' : '' ?>>Cancelled</option>
                                 </select>

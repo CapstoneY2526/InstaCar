@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../config/branch_helper.php';
 
 // Auth Check - JS Redirect
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
@@ -39,7 +40,7 @@ mysqli_query($conn, $auto_cancel_sql);
 $filter = $_GET['filter'] ?? 'All';
 $pageTitle = 'Online Bookings';
 
-// Get stats for online bookings
+// Get stats for online bookings (with branch scope)
 $statsQuery = "SELECT 
     COUNT(*) as total_bookings,
     SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending,
@@ -47,17 +48,17 @@ $statsQuery = "SELECT
     SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed,
     SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) as cancelled
 FROM bookings 
-WHERE booking_type = 'online'";
+WHERE booking_type = 'online'" . branchScopeSql();
 
 $statsResult = mysqli_query($conn, $statsQuery);
 $stats = mysqli_fetch_assoc($statsResult);
 
-// Build the query
+// Build the query (with branch scope)
 $query = "SELECT b.*, u.name as customer_name, u.email as gmail, c.brand, c.model, c.plate_number 
           FROM bookings b 
           LEFT JOIN users u ON b.user_id = u.id 
           JOIN cars c ON b.car_id = c.id 
-          WHERE b.booking_type = 'online' ";
+          WHERE b.booking_type = 'online'" . branchScopeSql('b.branch_id');
 
 // Dynamic Filtering
 if ($filter !== 'All') {
@@ -81,7 +82,7 @@ while ($row = mysqli_fetch_assoc($result)) {
 
 // Debug: Check if there are online bookings
 if (empty($bookings) && $filter == 'All') {
-    $check_sql = "SELECT COUNT(*) as total FROM bookings WHERE booking_type = 'online'";
+    $check_sql = "SELECT COUNT(*) as total FROM bookings WHERE booking_type = 'online'" . branchScopeSql();
     $check_result = mysqli_query($conn, $check_sql);
     $check_row = mysqli_fetch_assoc($check_result);
 
@@ -303,7 +304,7 @@ if (empty($bookings) && $filter == 'All') {
     .table-card {
         border-radius: var(--card-radius) !important;
         border: 1px solid var(--brand-border);
-        overflow: hidden !important; /* Clips table headers to match card radius */
+        overflow: hidden !important;
         background: #ffffff;
     }
 
@@ -924,7 +925,7 @@ if (empty($bookings) && $filter == 'All') {
     }
 
     .pricing-balance {
-        color: #d97706; /* Darker amber for readability on white/light background */
+        color: #d97706;
     }
 
     body.dark-mode .pricing-total {
@@ -932,7 +933,7 @@ if (empty($bookings) && $filter == 'All') {
     }
 
     body.dark-mode .pricing-balance {
-        color: var(--brand-yellow) !important; /* Yellow in dark mode */
+        color: var(--brand-yellow) !important;
     }
 </style>
 
@@ -1320,7 +1321,6 @@ if (empty($bookings) && $filter == 'All') {
 <div class="modal fade" id="editCredentialsModal" tabindex="-1" aria-labelledby="editCredentialsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
-            <!-- Updated form action to process/booking_actions.php -->
             <form action="process/booking_actions.php" method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="booking_id" id="edit_booking_id">
                 <input type="hidden" name="filter" value="<?= htmlspecialchars($filter) ?>">
@@ -1438,13 +1438,11 @@ $(document).ready(function () {
 
 
 $(document).ready(function () {
-    // Helper to format time to HH:MM for HTML5 time inputs
     function formatTimeInput(timeStr) {
         if (!timeStr) return '';
         return timeStr.toString().substring(0, 5);
     }
 
-    // Toggle delivery address field based on fulfillment type
     function toggleDeliveryAddress() {
         const type = $('#edit_fulfillment_type').val();
         if (type === 'delivery') {
@@ -1465,7 +1463,6 @@ $(document).ready(function () {
         $('#edit_start_date').val(booking.start_date);
         $('#edit_end_date').val(booking.end_date);
         
-        // Strip seconds so native time picker doesn't open a 3rd column
         $('#edit_pickup_time').val(formatTimeInput(booking.pickup_time));
         $('#edit_return_time').val(formatTimeInput(booking.return_time));
         

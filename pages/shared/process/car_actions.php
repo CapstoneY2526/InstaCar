@@ -4,6 +4,7 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 session_start();
 require_once "../../../config/database.php";
+require_once __DIR__ . '/../../../config/branch_helper.php';
 
 if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'operator'])) {
     exit("Unauthorized");
@@ -11,6 +12,17 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'oper
 
 $user_id = (int)$_SESSION['user_id'];
 $role = $_SESSION['role'];
+
+// ---- Branch handling ----
+// If the form didn't send a branch, fall back to the current view scope:
+//   - Admin viewing "Cebu"     → tag new car as Cebu
+//   - Admin viewing "All"      → stays NULL (they can pick manually in the form)
+//   - Staff/operator           → their own branch
+$posted_branch = $_POST['branch_id'] ?? '';
+if (($posted_branch === '' || $posted_branch === '0') && currentBranchId() !== null) {
+    $posted_branch = currentBranchId();
+}
+$branch_id = ($posted_branch === '' || $posted_branch === '0') ? 'NULL' : intval($posted_branch);
 
 // CORRECT PATH: From /pages/shared/process/ to /public/assets/images/cars/
 $target_dir = "../../../public/assets/images/cars/";
@@ -32,6 +44,26 @@ if (isset($_POST['add_car'])) {
     $trans = mysqli_real_escape_string($conn, $_POST['transmission']);
     $color = mysqli_real_escape_string($conn, $_POST['color']);
     $cap = (int)$_POST['capacity'];
+
+    // ============================================================
+    // OPERATOR ASSIGNMENT (admin only)
+    // ============================================================
+    $assigned_user_id = $user_id;
+
+    if ($role === 'admin' && isset($_POST['user_id']) && $_POST['user_id'] !== '') {
+        $picked = (int)$_POST['user_id'];
+
+        if ($picked > 0) {
+            $validate = mysqli_query($conn, "SELECT id FROM users WHERE id = $picked AND role IN ('operator', 'admin') LIMIT 1");
+            if ($validate && mysqli_num_rows($validate) > 0) {
+                $assigned_user_id = $picked;
+            } else {
+                $_SESSION['error'] = "Invalid operator selected.";
+                header("Location: ../cars.php");
+                exit();
+            }
+        }
+    }
 
     // Check duplicate plate
     $check = mysqli_query($conn, "SELECT id FROM cars WHERE plate_number = '$plate' LIMIT 1");
@@ -68,15 +100,15 @@ if (isset($_POST['add_car'])) {
     }
     $image_string = implode(',', $images);
 
-    // Insert
+    // Insert with branch_id
     $sql = "INSERT INTO cars (
-        user_id, brand, model, plate_number, fuel_type, type, transmission, capacity, color, image_path, status,
+        user_id, branch_id, brand, model, plate_number, fuel_type, type, transmission, capacity, color, image_path, status,
         price_10_hours, operator_10_hours,
         price_12_hours, operator_12_hours,
         price_24_hours, operator_24_hours,
         ext_price_1_6, ext_price_7_10, ext_price_11_12, ext_price_13_24
     ) VALUES (
-        $user_id, '$brand', '$model', '$plate', '$fuel', '$type', '$trans', $cap, '$color', '$image_string', 'Available',
+        $assigned_user_id, $branch_id, '$brand', '$model', '$plate', '$fuel', '$type', '$trans', $cap, '$color', '$image_string', 'Available',
         " . floatval($_POST['price_10_hours'] ?? 0) . ", " . floatval($_POST['operator_10_hours'] ?? 0) . ",
         " . floatval($_POST['price_12_hours'] ?? 0) . ", " . floatval($_POST['operator_12_hours'] ?? 0) . ",
         " . floatval($_POST['price_24_hours'] ?? 0) . ", " . floatval($_POST['operator_24_hours'] ?? 0) . ",
@@ -85,7 +117,13 @@ if (isset($_POST['add_car'])) {
     )";
 
     if (mysqli_query($conn, $sql)) {
-        $_SESSION['success'] = "Car added successfully!";
+        if ($assigned_user_id !== $user_id) {
+            $opName = mysqli_fetch_assoc(mysqli_query($conn, "SELECT name FROM users WHERE id = $assigned_user_id"));
+            $ownerName = $opName['name'] ?? 'operator';
+            $_SESSION['success'] = "Car added successfully and assigned to $ownerName!";
+        } else {
+            $_SESSION['success'] = "Car added successfully!";
+        }
     } else {
         $_SESSION['error'] = "Error: " . mysqli_error($conn);
     }
@@ -95,7 +133,7 @@ if (isset($_POST['add_car'])) {
 }
 
 // ============================================================
-// UPDATE CAR - SIMPLIFIED AND WORKING
+// UPDATE CAR
 // ============================================================
 if (isset($_POST['update_car']) && isset($_POST['id'])) {
     $id = (int)$_POST['id'];
@@ -129,10 +167,8 @@ if (isset($_POST['update_car']) && isset($_POST['id'])) {
     }
 
     // ============================================================
-    // SIMPLE IMAGE HANDLING - FIXED
+    // IMAGE HANDLING
     // ============================================================
-    
-    // Step 1: Get current images from database
     $current_images = [];
     $img_query = mysqli_query($conn, "SELECT image_path FROM cars WHERE id = $id");
     if ($img_data = mysqli_fetch_assoc($img_query)) {
@@ -142,12 +178,11 @@ if (isset($_POST['update_car']) && isset($_POST['id'])) {
         }
     }
     
-    // If no images, use default
     if (empty($current_images)) {
         $current_images = ['default.png'];
     }
     
-    // Step 2: Handle image deletions
+    // Handle deletions
     if (isset($_POST['delete_existing_images']) && is_array($_POST['delete_existing_images'])) {
         foreach ($_POST['delete_existing_images'] as $del_img) {
             $del_img = trim($del_img);
@@ -167,7 +202,7 @@ if (isset($_POST['update_car']) && isset($_POST['id'])) {
         $current_images = array_values($current_images);
     }
     
-    // Step 3: Upload new images
+    // Upload new images
     $new_images = [];
     if (isset($_FILES['car_images']) && !empty($_FILES['car_images']['name'][0])) {
         $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
@@ -189,15 +224,13 @@ if (isset($_POST['update_car']) && isset($_POST['id'])) {
         }
     }
     
-    // Step 4: Merge images
+    // Merge images
     if (!empty($new_images)) {
-        // Remove default.png if we have real images
         $def_key = array_search('default.png', $current_images);
         if ($def_key !== false) {
             unset($current_images[$def_key]);
         }
         
-        // Add new images
         foreach ($new_images as $new_img) {
             if (!in_array($new_img, $current_images)) {
                 $current_images[] = $new_img;
@@ -206,12 +239,10 @@ if (isset($_POST['update_car']) && isset($_POST['id'])) {
         $current_images = array_values($current_images);
     }
     
-    // Step 5: Ensure we have at least one image
     if (empty($current_images)) {
         $current_images = ['default.png'];
     }
     
-    // Step 6: Create final string
     $current_images = array_values(array_unique($current_images));
     $image_string = implode(',', $current_images);
 
@@ -227,8 +258,9 @@ if (isset($_POST['update_car']) && isset($_POST['id'])) {
     $ext_11_12 = floatval($_POST['ext_price_11_12'] ?? 0);
     $ext_13_24 = floatval($_POST['ext_price_13_24'] ?? 0);
 
-    // Update database
+    // Update database (with branch_id)
     $sql = "UPDATE cars SET 
+        branch_id = $branch_id,
         brand = '$brand',
         model = '$model',
         plate_number = '$plate',
@@ -268,7 +300,6 @@ if (isset($_GET['delete'])) {
     $id = (int)$_GET['delete'];
     $auth = ($role === 'admin') ? "" : " AND user_id = $user_id";
 
-    // Get images for deletion
     $img_query = mysqli_query($conn, "SELECT image_path FROM cars WHERE id = $id $auth");
     if ($img_data = mysqli_fetch_assoc($img_query)) {
         if (!empty($img_data['image_path'])) {
@@ -303,7 +334,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'set_main_image') {
     $chosen_img = trim($_POST['image_name']);
     $auth = ($_SESSION['role'] === 'admin') ? "" : " AND user_id = " . (int)$_SESSION['user_id'];
 
-    // Get current images
     $query = mysqli_query($conn, "SELECT image_path FROM cars WHERE id = $car_id $auth");
     if ($car = mysqli_fetch_assoc($query)) {
         if (!empty($car['image_path'])) {

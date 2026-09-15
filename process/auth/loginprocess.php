@@ -36,19 +36,35 @@ if (isset($_POST['submit'])) {
             // Regenerate session ID and save user context
             session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id'];
-            $_SESSION['name'] = $user['name'];
-            $_SESSION['role'] = $user['role'];
+            $_SESSION['name']    = $user['name'];
+            $_SESSION['role']    = $user['role'];
             $_SESSION['success'] = "Welcome back, " . $user['name'] . "!";
+
+            // ---- Branch context ----
+            // branch_id: the user's OWN branch (staff/operator belong to one; admin is null)
+            $_SESSION['branch_id'] = $user['branch_id'] ?? null;
+
+            // view_branch: which branch the user is CURRENTLY looking at
+            //   admin  → starts on 'all' (they can switch)
+            //   others → locked to their own branch
+            if ($user['role'] === 'admin') {
+                $_SESSION['view_branch'] = 'all';
+            } else {
+                $_SESSION['view_branch'] = $user['branch_id'] ?? null;
+            }
+            // -------------------------
 
             // Determine the destination path based on role
             if ($user['role'] === "admin") {
                 $location = "../../pages/admin/dashboard.php";
             } elseif ($user['role'] === "operator") {
                 $location = "../../pages/operator/dashboard.php";
+            } elseif ($user['role'] === "staff") {
+                $location = "../../pages/staff/dashboard.php";
             } else {
                 $location = "../../pages/user/dashboard.php";
             }
-            
+
             // 5. JavaScript Redirect for Success
             ?>
             <script>window.location.href = '<?php echo $location; ?>';</script>

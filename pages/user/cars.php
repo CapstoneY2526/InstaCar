@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../config/content_helper.php';
 
 // Auth Check - Redirect using header instead of inline script
 if (!isset($_SESSION['user_id'])) {
@@ -25,26 +26,54 @@ while ($row = mysqli_fetch_assoc($typeResult)) {
     $car_types[] = $row['type'];
 }
 
-// Build query with filters
-$query = "SELECT * FROM cars WHERE status IN ('Available', 'Active', 'Rented')";
+// Get active branches for the branch filter dropdown
+$branch_filter = isset($_GET['branch']) ? $_GET['branch'] : 'All';
+$branches_list = [];
+$branchQuery = "SELECT id, name FROM branches WHERE is_active = 1 ORDER BY name ASC";
+$branchResult = mysqli_query($conn, $branchQuery);
+if ($branchResult) {
+    while ($row = mysqli_fetch_assoc($branchResult)) {
+        $branches_list[] = $row;
+    }
+}
+
+// Build query with filters — join branches so each car knows its branch name
+$query = "SELECT c.*, b.name AS branch_name, b.address AS branch_address, b.phone AS branch_phone
+          FROM cars c
+          LEFT JOIN branches b ON c.branch_id = b.id
+          WHERE c.status IN ('Available', 'Active', 'Rented')";
 
 if ($type_filter !== 'All') {
     $type_filter_safe = mysqli_real_escape_string($conn, $type_filter);
-    $query .= " AND type = '$type_filter_safe'";
+    $query .= " AND c.type = '$type_filter_safe'";
 }
 
 if ($status_filter !== 'All') {
     $status_filter_safe = mysqli_real_escape_string($conn, $status_filter);
-    $query .= " AND status = '$status_filter_safe'";
+    $query .= " AND c.status = '$status_filter_safe'";
 }
 
-$query .= " ORDER BY created_at DESC";
+// Branch filter — only apply when a specific branch is chosen
+if ($branch_filter !== 'All') {
+    $branch_filter_safe = intval($branch_filter);
+    if ($branch_filter_safe > 0) {
+        $query .= " AND c.branch_id = $branch_filter_safe";
+    }
+}
+
+$query .= " ORDER BY c.created_at DESC";
 
 $cars_result = mysqli_query($conn, $query);
 $cars = [];
 while ($row = mysqli_fetch_assoc($cars_result)) {
     $cars[] = $row;
 }
+
+// Load editable rental agreement (falls back to empty if DB is empty)
+$rental_agreement_html = get_site_content($conn, 'rental_agreement_html', '');
+$agreement_updated = mysqli_fetch_assoc(mysqli_query($conn, 
+    "SELECT updated_at FROM site_content WHERE content_key = 'rental_agreement_html' LIMIT 1"
+));
 
 // Ensure path resolution matches assets directory
 $qr_file_path = __DIR__ . '/../../public/assets/images/qr_code_payment.png';
@@ -978,7 +1007,7 @@ if (file_exists($qr_file_path)) {
                 
                 <div class="filter-section">
                     <div class="row g-3 align-items-end">
-                        <div class="col-sm-6 col-md-4">
+                        <div class="col-sm-6 col-md-3">
                             <div class="filter-label">
                                 <i class="bi bi-car-front"></i> Filter by Type
                             </div>
@@ -991,8 +1020,22 @@ if (file_exists($qr_file_path)) {
                                 <?php endforeach; ?>
                             </select>
                         </div>
+
+                        <div class="col-sm-6 col-md-3">
+                            <div class="filter-label">
+                                <i class="bi bi-geo-alt"></i> Filter by Branch
+                            </div>
+                            <select class="filter-select w-100" id="branchFilter" onchange="applyFilters()">
+                                <option value="All" <?= $branch_filter == 'All' ? 'selected' : '' ?>>All Branches</option>
+                                <?php foreach ($branches_list as $branch): ?>
+                                    <option value="<?= $branch['id'] ?>" <?= $branch_filter == $branch['id'] ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($branch['name']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                         
-                        <div class="col-sm-6 col-md-4">
+                        <div class="col-sm-6 col-md-3">
                             <div class="filter-label">
                                 <i class="bi bi-tag"></i> Filter by Status
                             </div>
@@ -1003,26 +1046,37 @@ if (file_exists($qr_file_path)) {
                             </select>
                         </div>
                         
-                        <div class="col-12 col-md-4">
+                        <div class="col-12 col-md-3">
                             <button class="btn btn-outline-secondary reset-filter w-100" onclick="resetFilters()">
                                 <i class="bi bi-x-circle"></i> Reset All Filters
                             </button>
                         </div>
                     </div>
                     
-                    <?php if ($type_filter !== 'All' || $status_filter !== 'All'): ?>
+                    <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All'): ?>
                         <div class="active-filters">
                             <span class="small text-muted me-2">Active filters:</span>
                             <?php if ($type_filter !== 'All'): ?>
                                 <span class="filter-badge">
                                     Type: <?= htmlspecialchars($type_filter) ?>
-                                    <a href="?type=All&status=<?= $status_filter ?>">×</a>
+                                    <a href="?type=All&status=<?= $status_filter ?>&branch=<?= $branch_filter ?>">×</a>
+                                </span>
+                            <?php endif; ?>
+                            <?php if ($branch_filter !== 'All'):
+                                $active_branch_name = '';
+                                foreach ($branches_list as $b) {
+                                    if ((int)$b['id'] === (int)$branch_filter) { $active_branch_name = $b['name']; break; }
+                                }
+                            ?>
+                                <span class="filter-badge">
+                                    Branch: <?= htmlspecialchars($active_branch_name ?: 'Selected') ?>
+                                    <a href="?type=<?= $type_filter ?>&status=<?= $status_filter ?>&branch=All">×</a>
                                 </span>
                             <?php endif; ?>
                             <?php if ($status_filter !== 'All'): ?>
                                 <span class="filter-badge">
                                     Status: <?= $status_filter == 'Available' ? 'Available' : 'Rented/Active' ?>
-                                    <a href="?type=<?= $type_filter ?>&status=All">×</a>
+                                    <a href="?type=<?= $type_filter ?>&status=All&branch=<?= $branch_filter ?>">×</a>
                                 </span>
                             <?php endif; ?>
                         </div>
@@ -1030,14 +1084,20 @@ if (file_exists($qr_file_path)) {
                     
                     <div class="results-count">
                         <i class="bi bi-car-front"></i> Showing <?= count($cars) ?> vehicle<?= count($cars) != 1 ? 's' : '' ?>
-                        <?php if ($type_filter !== 'All' || $status_filter !== 'All'): ?>
-                            <?php if ($type_filter !== 'All' && $status_filter !== 'All'): ?>
-                                of type "<?= htmlspecialchars($type_filter) ?>" with status "<?= $status_filter == 'Available' ? 'Available' : 'Rented/Active' ?>"
-                            <?php elseif ($type_filter !== 'All'): ?>
-                                of type "<?= htmlspecialchars($type_filter) ?>"
-                            <?php elseif ($status_filter !== 'All'): ?>
-                                with status "<?= $status_filter == 'Available' ? 'Available' : 'Rented/Active' ?>"
-                            <?php endif; ?>
+                        <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All'): ?>
+                            <?php
+                                $bits = [];
+                                if ($type_filter !== 'All')   $bits[] = 'type "' . htmlspecialchars($type_filter) . '"';
+                                if ($branch_filter !== 'All') {
+                                    $bn = '';
+                                    foreach ($branches_list as $b) {
+                                        if ((int)$b['id'] === (int)$branch_filter) { $bn = $b['name']; break; }
+                                    }
+                                    if ($bn) $bits[] = 'at "' . htmlspecialchars($bn) . '"';
+                                }
+                                if ($status_filter !== 'All') $bits[] = 'with status "' . ($status_filter == 'Available' ? 'Available' : 'Rented/Active') . '"';
+                            ?>
+                            <?= $bits ? ' ' . implode(' ', $bits) : '' ?>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -1048,13 +1108,13 @@ if (file_exists($qr_file_path)) {
                             <i class="bi bi-car-front text-muted" style="font-size: 4rem;"></i>
                             <h5 class="mt-3 text-muted">No vehicles found</h5>
                             <p class="text-muted small">
-                                <?php if ($type_filter !== 'All' || $status_filter !== 'All'): ?>
+                                <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All'): ?>
                                     No vehicles match your filters. Try adjusting your criteria.
                                 <?php else: ?>
                                     Please check back later for available cars.
                                 <?php endif; ?>
                             </p>
-                            <?php if ($type_filter !== 'All' || $status_filter !== 'All'): ?>
+                            <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All'): ?>
                                 <button onclick="resetFilters()" class="btn btn-primary mt-2">
                                     <i class="bi bi-arrow-repeat"></i> Reset Filters
                                 </button>
@@ -1093,11 +1153,17 @@ if (file_exists($qr_file_path)) {
                                             </div>
                                         </div>
                                         
-                                        <div class="position-absolute bottom-0 start-0 m-3">
+                                        <div class="position-absolute bottom-0 start-0 m-3 d-flex flex-wrap gap-2">
                                             <span class="badge bg-dark bg-opacity-75 px-3 py-2 rounded-pill">
                                                 <i class="bi bi-tag me-1"></i>
                                                 <?= htmlspecialchars($car['type']) ?>
                                             </span>
+                                            <?php if (!empty($car['branch_name'])): ?>
+                                                <span class="badge bg-warning text-dark px-3 py-2 rounded-pill">
+                                                    <i class="bi bi-geo-alt-fill me-1"></i>
+                                                    <?= htmlspecialchars($car['branch_name']) ?>
+                                                </span>
+                                            <?php endif; ?>
                                         </div>
                                         
                                     </div>
@@ -1234,13 +1300,16 @@ if (file_exists($qr_file_path)) {
 
 <script>
 function applyFilters() {
-    var type = document.getElementById('typeFilter').value;
+    var type   = document.getElementById('typeFilter').value;
     var status = document.getElementById('statusFilter').value;
-    window.location.href = '?type=' + encodeURIComponent(type) + '&status=' + encodeURIComponent(status);
+    var branch = document.getElementById('branchFilter') ? document.getElementById('branchFilter').value : 'All';
+    window.location.href = '?type=' + encodeURIComponent(type)
+                         + '&status=' + encodeURIComponent(status)
+                         + '&branch=' + encodeURIComponent(branch);
 }
 
 function resetFilters() {
-    window.location.href = '?type=All&status=All';
+    window.location.href = '?type=All&status=All&branch=All';
 }
 </script>
 
@@ -1356,7 +1425,10 @@ function resetFilters() {
                             </div>
                             <div class="col-6">
                                 <input type="radio" class="btn-check" name="fulfillment_type" id="fulfillmentDelivery" value="delivery" onchange="toggleFulfillmentDetails()">
-                                <label class="fulfillment-card h-100 w-100 p-2.5 rounded-3 border d-flex align-items-center gap-2 cursor-pointer" for="fulfillmentDelivery">
+                                <label class="fulfillment-card h-100 w-100 p-2.5 rounded-3 border d-flex align-items-center gap-2 cursor-pointer" 
+                                    data-bs-toggle="modal" 
+                                    data-bs-target="#deliveryConfirmModal"
+                                    style="user-select: none;">
                                     <div class="icon-box rounded-2 d-flex align-items-center justify-content-center flex-shrink-0">
                                         <i class="bi bi-truck fs-6"></i>
                                     </div>
@@ -1383,14 +1455,18 @@ function resetFilters() {
                                                 <i class="bi bi-pin-map me-1"></i> PICKUP LOCATION
                                             </div>
                                             <div class="d-flex align-items-center flex-wrap gap-1 gap-sm-2">
-                                                <span class="fw-bold" style="font-size: 0.9rem;">Pandac, Pavia, 5001 Iloilo</span>
-                                                <a href="https://www.google.com/maps/place/Instacar+Car+Rental+Services/@10.7495626,122.5198576,17z/data=!3m1!4b1!4m6!3m5!1s0x33aefb4f8be44f49:0x930b22a3c6978b93!8m2!3d10.7495626!4d122.5198576!16s%2Fg%2F11vq394xy6?entry=ttu&g_ep=EgoyMDI2MDkwMi4wIKXMDSoASAFQAw%3D%3D" 
+                                                <span class="fw-bold" style="font-size: 0.9rem;" id="modalBranchAddress">—</span>
+                                                <a href="#" 
                                                 target="_blank" 
                                                 rel="noopener noreferrer"
+                                                id="modalBranchMapLink"
                                                 class="text-decoration-none text-primary fw-semibold d-inline-flex align-items-center gap-1" 
-                                                style="font-size: 0.75rem;">
+                                                style="font-size: 0.75rem; display: none !important;">
                                                     <i class="bi bi-box-arrow-up-right"></i> Map
                                                 </a>
+                                            </div>
+                                            <div class="text-muted small mt-1" id="modalBranchNameWrap" style="font-size: 0.72rem; display: none;">
+                                                <i class="bi bi-shop me-1"></i><span id="modalBranchName">—</span>
                                             </div>
                                         </div>
                                     </div>
@@ -1541,6 +1617,7 @@ function resetFilters() {
                 <h5 class="modal-title fw-bold" id="termsLabel"><i class="bi bi-shield-check me-2"></i>CAR RENTAL AGREEMENT</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
+
             <div class="modal-body p-3 p-md-5">
                 <div class="text-center mb-4">
                     <h3 class="fw-bold mb-0 fs-4 fs-md-3">INSTACAR CAR RENTAL SERVICES</h3>
@@ -1553,83 +1630,25 @@ function resetFilters() {
                 <div class="agreement-text-box p-3 p-md-4 border rounded shadow-sm">
                     <p class="text-center fw-bold text-uppercase mb-4">Car Rental Agreement</p>
                     
-                    <p>This Car Rental Agreement (the "Agreement") is entered into between:<br>
-                    <strong>RENTER:</strong> Hereinafter referred to as RENTER;<br>
-                    -and- <strong>OWNER:</strong> Instacar Car Rental Services, hereinafter referred to as INSTACAR;<br>
-                    Collectively referred to as the "Parties."</p>
-
-                    <h6 class="fw-bold mt-4 text-primary">I. Vehicle Rental</h6>
-                    <p>INSTACAR agrees to rent to RENTER a vehicle identified under the details provided in Annex A.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">II. Term of Agreement</h6>
-                    <p>The term of this Car Rental Agreement runs from the date and hour of vehicle pickup as indicated in Annex A until the return of the vehicle to INSTACAR and completion of all terms of this Agreement. The Parties may shorten or extend the estimated rental term by mutual consent.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">III. Compliance with Terms and Conditions</h6>
-                    <p>RENTER complies and agrees with the terms and conditions as stated below.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">IV. Licensure and Legal Compliance</h6>
-                    <p>RENTER will comply with all applicable laws relating to holding of licensure to operate the vehicle, and pertaining to operation of motor vehicles including but not limited to LTO and other relevant traffic regulations.</p>
-
-                    <h6 class="fw-bold mt-3 text-danger">V. Restrictions on Use</h6>
-                    <p>RENTER should not operate the vehicle in the following cases: In motor sports events, in illegal transactions or activities, carrying persons or anything for hire, parking the vehicle in unsecured places, towing or pushing anything, transporting or getting onboard any kind of pet or animal, smoking inside the vehicle, carrying anything of weight in excess of the vehicle’s maximum capacity, passing on roads that are not passable or not safe for the vehicle, unlawful, improper, or offensive use of vehicle equipment/tools/parts, the RENTER shall not assign nor transfer his right to use the vehicle to any third person without prior written consent from INSTACAR, nor mortgage or sell the said vehicle to any third person, otherwise, INSTACAR shall file appropriate action against the lessee.</p>
-
-                    <h6 class="fw-bold mt-3 text-danger">VI. Coverage Area</h6>
-                    <p>RENTER shall only use the vehicle within Panay Island unless written consent is provided by INSTACAR. If the vehicle is taken outside Panay Island or transported by any watercraft without consent, a fine of <strong>PHP 100,000</strong> shall be imposed. Additionally, INSTACAR reserves the right to report the violation to the appropriate authorities, including the Highway Patrol Group (HPG), for the immediate apprehension of the unit.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">VII. Authorized Operators</h6>
-                    <p>RENTER will not allow any other person to operate the Rented Vehicle unless identified in Annex A.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">VIII. Traffic Violations and Penalties</h6>
-                    <p>RENTER shall be responsible for all fines, penalties, and liabilities resulting from any traffic or road violations incurred during the rental period. If RENTER receives a traffic violation or is issued a ticket that imposes a penalty on the rental unit, they must report it to INSTACAR within 24 hours of issuance. Failure to report within the given timeframe will result in the RENTER being charged double the total penalty amount, including any additional fees due to delayed payment caused by the RENTER’S failure to report on time. RENTER must settle the total amount immediately upon notification.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">IX. Cleaning Fee</h6>
-                    <p>The vehicle will be handed over to the RENTER washed and clean, and should be returned also clean with the same cleanliness during handover. Otherwise, RENTER will be charged a PHP 200 washing fee.<br>
-                    <strong>Smoking, Carrying of Fresh Fish, Dried Fish, Animals, Foods, Spillage, Vomiting, or Any Items That Cause Odor and Stains:</strong> A cleaning fee of <strong>PHP 2,000</strong> will be charged to RENTER for detailed cleaning services required to address the odor and dirt caused by smoking, carrying fresh fish, dried fish, any animals, food items, or any items that may cause odor and stains on the vehicle, as well as incidents involving spillage or vomiting.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">X. Key Replacement Charges</h6>
-                    <p>If the vehicle key is locked inside the vehicle and RENTER requests a duplicate key, the following charges will apply:<br>
-                    - Provincial: P5,000 plus gasoline charges for round-trip delivery.<br>
-                    - Iloilo City: P1,000 plus gasoline charges for round-trip delivery.<br>
-                    In the event the key is lost, a charge will be applied based on the price of replacing the key from the authorized service center (casa).</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XI. Fuel</h6>
-                    <p>Fuel charges shall be on the sole account of RENTER; RENTER is responsible for returning the vehicle with the same amount of fuel in the tank as when received. Instacar will not refund the extra fuel if the rented vehicle is returned with more than the amount when it was received by the RENTER. The RENTER must use the correct fuel type specified for the vehicle. Any damage resulting from the use of incorrect fuel will be fully charged to the renter.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XII. Vehicle Condition</h6>
-                    <p>RENTER shall return the vehicle in the same condition it was delivered except for the normal wear and tear.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XIII. Retrieval of Vehicle</h6>
-                    <p>Instacar reserves the right to retrieve the rented vehicle at any time and from any location if the RENTER fails to fulfill their payment obligations.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XV. Failure to Return Vehicle</h6>
-                    <p>If RENTER fails to return the vehicle on the due date and time without a permitted extension from Instacar, RENTER will be deemed to be in unlawful possession of the vehicle and to have authorized the issuance of a warrant for the arrest of the RENTER.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XVI. Extension of Rental Period</h6>
-                    <p>If the RENTER fails to return the vehicle within the stipulated time, the RENTER agrees to pay <strong>PHP 200 per hour (PHP 250 for vans)</strong> for the first 6 hours. In excess of six hours, the RENTER must pay the daily rate for the rented vehicle or van, depending on the type.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XVIII. Responsibility for Damages and Repairs</h6>
-                    <p>The RENTER will shoulder all expenses for any damage, replacement of missing parts and accessories, and the full daily rental rate of the damaged vehicle until it has been fixed or restored to its original condition.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XX. Insurance Coverage</h6>
-                    <p>If the Rental Vehicle is damaged or destroyed while in the possession of the Renter, the Renter may choose to use the vehicle’s comprehensive insurance. If the insurance company denies coverage, the Renter will be responsible for covering the full cost of the damage.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XXI. Service Fee for Assistance</h6>
-                    <p>Within City Limits: PHP 1,000 / Outside City Limits: PHP 5,000 / Fuel Cost: The RENTER shall also cover the fuel expenses for the round-trip travel of the assistance vehicle.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XXIII. Payment Terms and Conditions</h6>
-                    <p><strong>Rental Payment Terms:</strong><br>
-                    1. The renter must pay a non-refundable reservation fee of 5% of the total rental rate to confirm the booking.<br>
-                    2. The remaining balance for the entire rental period must be fully paid upon handover of the unit.<br>
-                    <strong>Damage Payment Settlement Terms:</strong><br>
-                    - Minor Damages (Below PHP 10,000) – Payment due within the day.<br>
-                    - Moderate Damages (PHP 10,000 - PHP 50,000) – Payment due within 7 days.<br>
-                    - Major Damages (Above PHP 50,000 / Total Wreck) – 50% upfront within 7 days, balance payable within 30 days.</p>
-
-                    <h6 class="fw-bold mt-3 text-primary">XXIV. Cancellation and Refund Policy</h6>
-                    <p>Once the reservation is confirmed and the reservation fee is received, there will be no refund in case of cancellation or change of schedule.</p>
+                    <?php if (!empty($rental_agreement_html)): ?>
+                        <?= $rental_agreement_html ?>
+                        
+                        <?php if (!empty($agreement_updated)): ?>
+                            <p class="small text-muted mt-3 mb-0">
+                                <i class="bi bi-clock-history me-1"></i>
+                                Terms last updated: <?= date('F j, Y', strtotime($agreement_updated['updated_at'])) ?>
+                            </p>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <div class="alert alert-warning mb-3">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            <strong>Agreement content not yet set.</strong>
+                            Please contact the administrator.
+                        </div>
+                    <?php endif; ?>
                     
                     <br>
-                    <p class="small text-muted">Owner/Manager: Grayson Mark S. Del Socorro</p>
+                    <p class="small text-muted">Owner/Manager: Mak Auto Solutions OPC</p>
 
                     <div class="form-check mt-4 p-3 theme-bg-alt rounded border">
                         <input class="form-check-input" type="checkbox" id="agreeCheckbox" onchange="toggleProceedBtn()">
@@ -1638,12 +1657,61 @@ function resetFilters() {
                         </label>
                     </div>
                 </div>
-
             </div>
+
             <div class="modal-footer border-0 p-4 pt-0">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Decline</button>
                 <button type="button" id="proceedToBookingBtn" class="btn btn-primary px-5 fw-bold" onclick="showBookingForm()" disabled>
                     Accept and Proceed
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- DELIVERY CONFIRMATION MODAL -->
+<div class="modal fade" id="deliveryConfirmModal" 
+     tabindex="-1" 
+     aria-labelledby="deliveryConfirmLabel" 
+     aria-hidden="true" 
+     data-bs-backdrop="static" 
+     data-bs-keyboard="false"
+     style="z-index: 1065;">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header border-0 p-4 pb-2">
+                <h5 class="fw-bold mb-0" id="deliveryConfirmLabel">
+                    <i class="bi bi-truck me-2 text-warning"></i>Confirm Car Delivery
+                </h5>
+                <!-- No X button — user must pick one of the two options -->
+            </div>
+            <div class="modal-body p-4 pt-2">
+                
+                <!-- Custom styled warning box — no dependency on Bootstrap's alert-warning -->
+                <div style="background-color: #fff8e1; border: 1px solid #f0c14b; border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
+                    <div style="display: flex; align-items: flex-start; gap: 10px;">
+                        <i class="bi bi-exclamation-triangle-fill" style="color: #b45309; font-size: 1.2rem; flex-shrink: 0; margin-top: 2px;"></i>
+                        <div>
+                            <div style="color: #78350f; font-weight: 700; font-size: 0.9rem; margin-bottom: 4px;">
+                                Additional fees apply
+                            </div>
+                            <div style="color: #78350f; font-size: 0.82rem; line-height: 1.5;">
+                                Additional fees apply for delivery and pickup outside our office. The exact amount will be confirmed by our team based on your location.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-muted small mb-0">
+                    Do you want to continue with <strong>Car Delivery</strong>?
+                </p>
+            </div>
+            <div class="modal-footer border-0 p-4 pt-0 d-flex gap-2">
+                <button type="button" class="btn btn-secondary flex-fill" onclick="cancelDeliverySelection()">
+                    No, keep pickup
+                </button>
+                <button type="button" class="btn btn-primary flex-fill fw-bold" onclick="confirmDeliverySelection()">
+                    Yes, proceed with delivery
                 </button>
             </div>
         </div>
@@ -1684,6 +1752,38 @@ async function showBookingForm() {
     document.getElementById('modalCarPrice24').value = tempCarData.price_24_hours || 0;
     document.getElementById('modalCarPrice12').value = tempCarData.price_12_hours || 0;
     document.getElementById('modalCarPrice10').value = tempCarData.price_10_hours || 0;
+
+    // --- Populate branch pickup info ---
+    const addressEl  = document.getElementById('modalBranchAddress');
+    const nameEl     = document.getElementById('modalBranchName');
+    const nameWrapEl = document.getElementById('modalBranchNameWrap');
+    const mapLinkEl  = document.getElementById('modalBranchMapLink');
+
+    const branchName    = (tempCarData.branch_name    || '').trim();
+    const branchAddress = (tempCarData.branch_address || '').trim();
+
+    if (addressEl) {
+        addressEl.innerText = branchAddress !== '' ? branchAddress : 'Address not set — please contact us';
+    }
+
+    if (nameEl && nameWrapEl) {
+        if (branchName !== '') {
+            nameEl.innerText = branchName;
+            nameWrapEl.style.setProperty('display', 'block', 'important');
+        } else {
+            nameWrapEl.style.setProperty('display', 'none', 'important');
+        }
+    }
+
+    if (mapLinkEl) {
+        const query = [branchName, branchAddress].filter(Boolean).join(' ');
+        if (query !== '') {
+            mapLinkEl.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(query);
+            mapLinkEl.style.setProperty('display', 'inline-flex', 'important');
+        } else {
+            mapLinkEl.style.setProperty('display', 'none', 'important');
+        }
+    }
 
     // Populate extension rate inputs for JS calculations
     if (document.getElementById('modalExtPrice1_6'))   document.getElementById('modalExtPrice1_6').value   = tempCarData.ext_price_1_6 || 0;
@@ -2382,5 +2482,33 @@ function toggleFulfillmentDetails() {
         deliveryWrapper.style.setProperty('display', 'block', 'important');
         deliveryInput.setAttribute('required', 'required');
     }
+}
+
+function confirmDeliverySelection() {
+    const deliveryRadio = document.getElementById('fulfillmentDelivery');
+    if (deliveryRadio) {
+        deliveryRadio.checked = true;
+        deliveryRadio.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    toggleFulfillmentDetails();
+    
+    // Manually close the modal
+    const modalEl = document.getElementById('deliveryConfirmModal');
+    const modalInstance = bootstrap.Modal.getInstance(modalEl);
+    if (modalInstance) modalInstance.hide();
+}
+
+function cancelDeliverySelection() {
+    const pickupRadio = document.getElementById('fulfillmentPickup');
+    if (pickupRadio) {
+        pickupRadio.checked = true;
+        pickupRadio.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    toggleFulfillmentDetails();
+    
+    // Manually close the modal
+    const modalEl = document.getElementById('deliveryConfirmModal');
+    const modalInstance = bootstrap.Modal.getInstance(modalEl);
+    if (modalInstance) modalInstance.hide();
 }
 </script>

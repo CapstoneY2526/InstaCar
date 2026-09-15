@@ -12,8 +12,10 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
 $pageTitle = 'Add Booking Payments';
 
 // FETCH COMPLETED BOOKINGS AND INJECT NEWLY ADAPTED TIER STRUCTURES FROM CARS STASH
+// NOTE: Now includes b.delivery_fee, b.pickup_fee, and b.remarks for prefilling the settlement modal.
 $query = "SELECT b.id, b.booking_type, b.start_date, b.end_date, b.pickup_time, b.return_time, 
                  b.total_price, b.extension_price, b.extension_hours,
+                 b.delivery_fee, b.pickup_fee, b.remarks,
                  c.brand, c.model, c.plate_number, 
                  c.price_10_hours, c.price_12_hours, c.price_24_hours,
                  c.ext_price_1_6, c.ext_price_7_10, c.ext_price_11_12, c.ext_price_13_24,
@@ -590,7 +592,7 @@ if ($res) {
                     <div class="col-12 mt-4"><h6 class="fw-bold text-uppercase extra-small text-muted mb-0">Logistics & Fees</h6><hr class="my-1"></div>
                     <div class="col-6 col-md-3">
                         <label class="form-label small fw-bold text-primary">Delivery Fees</label>
-                        <input type="number" name="delivery_fee" class="form-control calc-field" value="0">
+                        <input type="number" name="delivery_fee" class="form-control calc-field" value="<?= floatval($b['delivery_fee'] ?? 0) ?>">
                     </div>
                     <div class="col-6 col-md-3">
                         <label class="form-label small fw-bold text-primary">Staff Delivery Fees</label>
@@ -598,7 +600,7 @@ if ($res) {
                     </div>
                     <div class="col-6 col-md-3">
                         <label class="form-label small fw-bold text-danger">Pickup Fees</label>
-                        <input type="number" name="pickup_fee" class="form-control calc-field" value="0">
+                        <input type="number" name="pickup_fee" class="form-control calc-field" value="<?= floatval($b['pickup_fee'] ?? 0) ?>">
                     </div>
                     <div class="col-6 col-md-3">
                         <label class="form-label small fw-bold text-danger">Staff Pick up</label>
@@ -627,6 +629,12 @@ if ($res) {
                         <label class="form-label small fw-bold text-muted">Other Fees</label>
                         <input type="number" name="others" class="form-control calc-field" value="0">
                     </div>
+
+                    <!-- ── NOTES / REMARKS FIELD (prefilled from booking) ── -->
+                    <div class="col-12 mt-4">
+                        <label class="form-label small fw-bold text-muted">Notes / Remarks</label>
+                        <textarea name="remarks" id="remarksInput<?= $b['id'] ?>" class="form-control" rows="2" placeholder="Enter any additional notes or remarks for this settlement..."><?= htmlspecialchars($b['remarks'] ?? '') ?></textarea>
+                    </div>
                 </div>
 
                 <div class="total-box mt-4" id="totalBox<?= $b['id'] ?>">
@@ -643,6 +651,10 @@ if ($res) {
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <span class="small text-white">Less: Staff Pickup Fee:</span>
                                 <span class="fw-bold text-danger" id="jerPickupDisplay<?= $b['id'] ?>">₱0.00</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="small text-white">Less: Agent Fee:</span>
+                                <span class="fw-bold text-danger" id="agentFeeDisplay<?= $b['id'] ?>">₱0.00</span>
                             </div>
                             <hr class="my-2 opacity-25">
                             <div class="d-flex justify-content-between align-items-center">
@@ -719,32 +731,35 @@ if ($res) {
     }
     
     function calculateTotals() {
-        const dailyRent = parseFloat(form.querySelector('[name="daily_rent"]')?.value) || 0;
+        // ── CUSTOMER-PAID REVENUE (add to Gross) ──
+        const dailyRent    = parseFloat(form.querySelector('[name="daily_rent"]')?.value) || 0;
         const extensionFee = parseFloat(form.querySelector('[name="extension_fee"]')?.value) || 0;
-        const agentFee = parseFloat(form.querySelector('[name="agent_fee"]')?.value) || 0;
-        const deliveryFee = parseFloat(form.querySelector('[name="delivery_fee"]')?.value) || 0;
-        const jerDelivery = parseFloat(form.querySelector('[name="jer_delivery_fee"]')?.value) || 0;
-        const pickupFee = parseFloat(form.querySelector('[name="pickup_fee"]')?.value) || 0;
-        const jerPickup = parseFloat(form.querySelector('[name="jer_pickup_fee"]')?.value) || 0;
-        const carwash = parseFloat(form.querySelector('[name="carwash"]')?.value) || 0;
-        const fuel = parseFloat(form.querySelector('[name="fuel"]')?.value) || 0;
-        const damageFee = parseFloat(form.querySelector('[name="damage_fee"]')?.value) || 0;
-        const driverFee = parseFloat(form.querySelector('[name="driver_fee"]')?.value) || 0;
-        const others = parseFloat(form.querySelector('[name="others"]')?.value) || 0;
+        const deliveryFee  = parseFloat(form.querySelector('[name="delivery_fee"]')?.value) || 0;
+        const pickupFee    = parseFloat(form.querySelector('[name="pickup_fee"]')?.value) || 0;
+        const damageFee    = parseFloat(form.querySelector('[name="damage_fee"]')?.value) || 0;
+        const others       = parseFloat(form.querySelector('[name="others"]')?.value) || 0;
+        const carwash      = parseFloat(form.querySelector('[name="carwash"]')?.value) || 0;
+        const fuel         = parseFloat(form.querySelector('[name="fuel"]')?.value) || 0;
+        const driverFee    = parseFloat(form.querySelector('[name="driver_fee"]')?.value) || 0;
+
+        // ── STAFF / AGENT PAYOUTS (subtract from Net) ──
+        const agentFee     = parseFloat(form.querySelector('[name="agent_fee"]')?.value) || 0;
+        const jerDelivery  = parseFloat(form.querySelector('[name="jer_delivery_fee"]')?.value) || 0;
+        const jerPickup    = parseFloat(form.querySelector('[name="jer_pickup_fee"]')?.value) || 0;
         
-        // Calculate Gross Total (all revenue streams)
-        const grossTotal = dailyRent + extensionFee + agentFee + deliveryFee + pickupFee + carwash + fuel + damageFee + driverFee + others;
+        // Gross = everything the customer pays
+        const grossTotal = dailyRent + extensionFee + deliveryFee + pickupFee 
+                         + damageFee + others + carwash + fuel + driverFee;
         
-        // Calculate NET Total (Gross minus absolute asset logistics overrides)
-        const netTotal = grossTotal - jerDelivery - jerPickup;
+        // Net = gross minus staff/agent payouts
+        const netTotal = grossTotal - jerDelivery - jerPickup - agentFee;
         
-        // Update elements
         document.getElementById('grossTotal' + bookingId).innerHTML = '₱' + grossTotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         document.getElementById('jerDeliveryDisplay' + bookingId).innerHTML = '₱' + jerDelivery.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         document.getElementById('jerPickupDisplay' + bookingId).innerHTML = '₱' + jerPickup.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        document.getElementById('agentFeeDisplay' + bookingId).innerHTML = '₱' + agentFee.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         document.getElementById('netTotal' + bookingId).innerHTML = '₱' + netTotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         
-        // Push raw structural strings to hidden inputs
         document.getElementById('totalGrossInput' + bookingId).value = grossTotal.toFixed(2);
         document.getElementById('totalNetInput' + bookingId).value = netTotal.toFixed(2);
     }

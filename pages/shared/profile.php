@@ -15,6 +15,10 @@ $user_id = (int)$_SESSION['user_id'];
 // Fetch user data including phone number
 $user = mysqli_fetch_assoc(mysqli_query($conn, "SELECT name, email, phone, role FROM users WHERE id = $user_id LIMIT 1"));
 
+// [NEW] Load content helper + current rental agreement value
+require_once __DIR__ . '/../../config/content_helper.php';
+$rental_agreement_html = get_site_content($conn, 'rental_agreement_html', '');
+
 $pageTitle = 'Account Settings';
 
 // QR Code File Path Check
@@ -200,6 +204,14 @@ $qr_image_url = "../../public/assets/images/qr_code_payment.png" . ($qr_image_ex
         background-color: rgba(13, 202, 240, 0.1) !important;
         color: #6edff6 !important;
         border: 1px solid rgba(13, 202, 240, 0.2) !important;
+    }
+
+    /* [NEW] Agreement editor textarea */
+    #agreementEditor {
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        min-height: 320px;
     }
 </style>
 
@@ -392,6 +404,45 @@ $qr_image_url = "../../public/assets/images/qr_code_payment.png" . ($qr_image_ex
                     </div>
                 </div>
                 <?php endif; ?>
+
+                <!-- [NEW] RENTAL AGREEMENT EDITOR (ADMIN / OPERATOR ONLY) -->
+                <?php if (in_array($user['role'], ['admin', 'operator'])): ?>
+                <div class="col-12">
+                    <div class="card shadow-sm border-0 rounded-4">
+                        <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+                            <h5 class="fw-bold mb-0">
+                                <i class="bi bi-file-earmark-text me-2 text-primary"></i>Rental Agreement Content
+                            </h5>
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-3 py-1">
+                                <i class="bi bi-pencil-square me-1"></i>Live Editable
+                            </span>
+                        </div>
+                        <div class="card-body p-4 pt-0">
+                            <form action="process/profile_actions.php" method="POST" id="agreementForm">
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold mb-2">
+                                        <i class="bi bi-code-slash text-warning me-1"></i> Agreement Body (HTML allowed)
+                                    </label>
+
+                                    <textarea name="rental_agreement_html"
+                                              id="agreementEditor"
+                                              class="form-control form-control-custom"
+                                              rows="16"><?= htmlspecialchars($rental_agreement_html ?? '') ?></textarea>
+
+                                    <div class="form-text mt-2">
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        Paste the agreement body only. Do not include the "Car Rental Agreement" title, the accept checkbox, or the signature — those stay hardcoded on the customer side.
+                                    </div>
+                                </div>
+
+                                <button type="submit" name="save_rental_agreement" class="btn btn-primary fw-bold px-4" style="border-radius: 10px;">
+                                    <i class="bi bi-save me-1"></i> Save Agreement
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -406,7 +457,6 @@ function updateFileName(input) {
         label.innerHTML = `<i class="bi bi-file-earmark-image text-warning me-1"></i> Selected: <strong class="text-warning">${input.files[0].name}</strong>`;
     }
 }
-
 
 document.querySelectorAll('.toggle-password').forEach(button => {
     button.addEventListener('click', function () {

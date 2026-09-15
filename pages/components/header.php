@@ -3,6 +3,11 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Ensure DB connection is available for the branch switcher
+if (!isset($conn)) {
+    require_once __DIR__ . '/../../config/database.php';
+}
+
 $name = $_SESSION['name'] ?? 'Guest';
 $role = $_SESSION['role'] ?? 'guest';
 
@@ -17,15 +22,35 @@ html, body {
     overflow-x: hidden;
 }
 
+/* Theme base backgrounds (applies even before JS runs) */
+html {
+    background-color: #f8fafc;
+    /* NO transition here — body/html should snap instantly to avoid gray midpoint */
+}
+html.dark-mode {
+    background-color: #0a0a0a;
+}
+
+/* ============================================================
+   THEME SWITCHING LOCK
+   Kills ALL transitions for one paint frame during theme flip.
+   This prevents the white→gray→black interpolation flash.
+   ============================================================ */
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+    transition: none !important;
+    animation: none !important;
+}
+
 /* Fix mobile overflow safely without breaking desktop layout */
 @media (max-width: 575.98px) {
-    /* 1. Stack stat cards into a clean 1-column layout */
     .stat-card,
     [class*="col-"] > .stat-card {
         width: 100% !important;
     }
     
-    /* Force grid columns to take full width on mobile */
     .row > [class*="col-6"],
     .row > [class*="col-sm-6"] {
         flex: 0 0 100% !important;
@@ -33,12 +58,10 @@ html, body {
         margin-bottom: 0.75rem;
     }
 
-    /* 2. Fix inner card layout so icon and text sit side-by-side cleanly */
     .stat-card .d-flex {
         gap: 12px !important;
     }
 
-    /* 3. Fix header action row from overflowing */
     .instacar-topbar .d-flex {
         gap: 6px !important;
     }
@@ -210,10 +233,19 @@ body.dark-mode .theme-toggle-btn:hover {
     background: #ffffff;
     border-bottom: 1px solid #e2e8f0;
     box-shadow: 0 2px 15px rgba(0,0,0,0.03);
-    transition: all 0.3s ease;
+    /* Only transition the properties that actually change between themes */
+    transition: background-color 0.2s ease,
+                border-color 0.2s ease,
+                box-shadow 0.2s ease;
     position: sticky;
     top: 0;
     z-index: 1050;
+}
+
+body.dark-mode .instacar-topbar {
+    background: #141414 !important;
+    border-bottom-color: #27272a !important;
+    box-shadow: 0 2px 15px rgba(0,0,0,0.4) !important;
 }
 
 .header-sidebar-toggle {
@@ -258,6 +290,10 @@ body.dark-mode .panel-title {
     letter-spacing: 1px;
 }
 
+body.dark-mode .panel-subtitle {
+    color: #a1a1aa !important;
+}
+
 .instacar-avatar {
     width: 38px;
     height: 38px;
@@ -275,10 +311,102 @@ body.dark-mode .panel-title {
     display: block;
 }
 
+body.dark-mode .user-info-text .fw-bold {
+    color: #ffffff !important;
+}
+
 .user-info-status {
     font-size: 10px;
     color: #ccac00;
     font-weight: 800;
+}
+
+/* ============================================================
+   BRANCH SWITCHER (admin only)
+   ============================================================ */
+.branch-switcher-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 10px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border: 1.5px solid #ffcc00;
+    background: #fffbe6;
+    color: #8a6a00;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.branch-switcher-btn:hover {
+    background: #fff3b0;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255, 204, 0, 0.25);
+}
+.branch-switcher-btn::after {
+    margin-left: 4px;
+}
+.branch-switcher-btn i.bi-shop {
+    font-size: 0.95rem;
+}
+
+body.dark-mode .branch-switcher-btn {
+    background: #1a1600;
+    color: #ffcc00;
+    border-color: rgba(255, 204, 0, 0.4);
+}
+body.dark-mode .branch-switcher-btn:hover {
+    background: #262100;
+    border-color: #ffcc00;
+    box-shadow: 0 4px 14px rgba(255, 204, 0, 0.2);
+}
+
+.branch-switcher-menu {
+    min-width: 220px;
+    border-radius: 12px !important;
+    padding: 6px !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12) !important;
+    background: #ffffff;
+}
+.branch-switcher-menu .dropdown-item {
+    border-radius: 8px;
+    padding: 8px 12px !important;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1e293b !important;
+    transition: all 0.15s ease;
+}
+.branch-switcher-menu .dropdown-item:hover {
+    background: rgba(255, 204, 0, 0.12) !important;
+    color: #8a6a00 !important;
+    transform: translateX(3px);
+}
+.branch-switcher-menu .dropdown-item.active {
+    background: #ffcc00 !important;
+    color: #000000 !important;
+    font-weight: 700;
+}
+
+body.dark-mode .branch-switcher-menu {
+    background: #141414 !important;
+    border-color: #27272a !important;
+}
+body.dark-mode .branch-switcher-menu .dropdown-item {
+    color: #e2e8f0 !important;
+}
+body.dark-mode .branch-switcher-menu .dropdown-item:hover {
+    background: rgba(255, 204, 0, 0.1) !important;
+    color: #ffcc00 !important;
+}
+body.dark-mode .branch-switcher-menu .dropdown-item.active {
+    background: #ffcc00 !important;
+    color: #000000 !important;
+}
+body.dark-mode .branch-switcher-menu .dropdown-divider {
+    border-color: #27272a;
 }
 
 /* Responsive Overrides */
@@ -324,6 +452,18 @@ body.dark-mode .panel-title {
         width: 34px;
         height: 34px;
     }
+
+    /* Compact branch switcher on mobile */
+    .branch-switcher-btn {
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        justify-content: center;
+        border-radius: 10px;
+    }
+    .branch-switcher-btn::after {
+        display: none;
+    }
 }
 
 @media (min-width: 769px) and (max-width: 1200px) {
@@ -352,12 +492,10 @@ body.dark-mode .panel-title {
 
 /* --- MOBILE OFF-CANVAS SIDEBAR OVERRIDES --- */
 @media (max-width: 768px) {
-    /* Ensure topbar sits below open overlay/sidebar */
     .instacar-topbar {
         z-index: 1000 !important;
     }
 
-    /* Force mobile sidebar off-canvas drawer */
     #sidebar {
         position: fixed !important;
         top: 0 !important;
@@ -366,19 +504,17 @@ body.dark-mode .panel-title {
         width: 280px !important;
         max-width: 85vw !important;
         height: 100vh !important;
-        z-index: 1090 !important; /* Higher than header (1000) */
+        z-index: 1090 !important;
         transform: translateX(-100%);
         transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5) !important;
         overflow-y: auto !important;
     }
 
-    /* Slide-in state */
     #sidebar.open {
         transform: translateX(0) !important;
     }
 
-    /* Background overlay backdrop */
     #sidebarOverlay {
         position: fixed !important;
         top: 0 !important;
@@ -387,7 +523,7 @@ body.dark-mode .panel-title {
         height: 100vh !important;
         background: rgba(0, 0, 0, 0.6) !important;
         backdrop-filter: blur(2px);
-        z-index: 1080 !important; /* Sitting right below sidebar */
+        z-index: 1080 !important;
     }
 }
 </style>
@@ -396,7 +532,6 @@ body.dark-mode .panel-title {
     <div class="container-fluid d-flex justify-content-between align-items-center flex-nowrap">
         
         <div class="d-flex align-items-center min-w-0 me-2">
-            <!-- Sidebar Toggle Button for Mobile -->
             <button class="header-sidebar-toggle" id="headerSidebarToggle" type="button" aria-label="Toggle navigation">
                 <i class="bi bi-list"></i>
             </button>
@@ -412,7 +547,59 @@ body.dark-mode .panel-title {
         </div>
 
         <div class="d-flex align-items-center gap-2 gap-sm-3 flex-shrink-0">
-            <!-- Header Dark Mode Toggle Button -->
+
+            <?php
+                // ---- Admin-only branch switcher ----
+                if (($_SESSION['role'] ?? '') === 'admin') {
+                    $branchOptions = [];
+                    if (isset($conn)) {
+                        $bRes = mysqli_query($conn, "SELECT id, name FROM branches WHERE is_active = 1 ORDER BY name ASC");
+                        if ($bRes) {
+                            while ($bRow = mysqli_fetch_assoc($bRes)) {
+                                $branchOptions[] = $bRow;
+                            }
+                        }
+                    }
+                    $currentView = $_SESSION['view_branch'] ?? 'all';
+            ?>
+                <div class="branch-switcher dropdown">
+                    <button class="branch-switcher-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Switch branch view">
+                        <i class="bi bi-shop"></i>
+                        <span class="d-none d-sm-inline">
+                            <?php
+                                if ($currentView === 'all') {
+                                    echo 'All Branches';
+                                } else {
+                                    $foundName = null;
+                                    foreach ($branchOptions as $b) {
+                                        if ((int)$b['id'] === (int)$currentView) { $foundName = $b['name']; break; }
+                                    }
+                                    echo $foundName ? htmlspecialchars($foundName) : 'All Branches';
+                                }
+                            ?>
+                        </span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end branch-switcher-menu">
+                        <li>
+                            <a class="dropdown-item <?= $currentView === 'all' ? 'active' : '' ?>" href="../admin/process/switch_branch.php?b=all">
+                                <i class="bi bi-globe2 me-2"></i>All Branches
+                            </a>
+                        </li>
+                        <?php if (!empty($branchOptions)): ?>
+                            <li><hr class="dropdown-divider"></li>
+                            <?php foreach ($branchOptions as $b): ?>
+                                <li>
+                                    <a class="dropdown-item <?= ((int)$currentView === (int)$b['id']) ? 'active' : '' ?>" 
+                                        href="../admin/process/switch_branch.php?b=<?= $b['id'] ?>">
+                                        <i class="bi bi-shop me-2"></i><?= htmlspecialchars($b['name']) ?>
+                                    </a>
+                                </li>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </ul>
+                </div>
+            <?php } ?>
+
             <button class="theme-toggle-btn" type="button" id="headerThemeToggleBtn" title="Toggle dark mode" aria-label="Toggle dark mode">
                 <i class="bi bi-moon-stars-fill" id="headerThemeToggleIcon"></i>
             </button>
@@ -460,7 +647,39 @@ body.dark-mode .panel-title {
 </nav>
 
 <script>
+// ============================================================
+// APPLY THEME IMMEDIATELY (before DOM loads) — prevents flash
+// ============================================================
+(function() {
+    try {
+        var STORAGE_KEY = 'instacar-admin-theme';
+        var stored = localStorage.getItem(STORAGE_KEY);
+        if (stored === 'dark') {
+            // Add theme-switching lock BEFORE painting to avoid any flash
+            document.documentElement.classList.add('theme-switching');
+            document.documentElement.classList.add('dark-mode');
+            if (document.body) {
+                document.body.classList.add('dark-mode');
+            } else {
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.body.classList.add('dark-mode');
+                });
+            }
+            // Release the lock after first paint
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    document.documentElement.classList.remove('theme-switching');
+                });
+            });
+        }
+    } catch(e) { /* ignore */ }
+})();
+
+// ============================================================
+// INTERACTIVE BEHAVIORS (sidebar toggle, theme toggle)
+// ============================================================
 document.addEventListener('DOMContentLoaded', function() {
+    // --- Sidebar toggle ---
     const headerToggle = document.getElementById('headerSidebarToggle');
     const sidebar = document.getElementById('sidebar');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
@@ -487,24 +706,42 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // --- Theme toggle ---
     const toggleBtn = document.getElementById('headerThemeToggleBtn');
     const toggleIcon = document.getElementById('headerThemeToggleIcon');
     const STORAGE_KEY = 'instacar-admin-theme';
 
     function applyTheme(isDark) {
         document.body.classList.toggle('dark-mode', isDark);
+        document.documentElement.classList.toggle('dark-mode', isDark);
         if (toggleIcon) {
             toggleIcon.className = isDark ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
         }
     }
 
-    applyTheme(localStorage.getItem(STORAGE_KEY) === 'dark');
+    // Sync icon to current state (theme already applied above)
+    const isCurrentlyDark = document.body.classList.contains('dark-mode');
+    if (toggleIcon) {
+        toggleIcon.className = isCurrentlyDark ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
+    }
 
     if (toggleBtn) {
         toggleBtn.addEventListener('click', function () {
             const isDark = !document.body.classList.contains('dark-mode');
+
+            // 1. Lock ALL transitions for one frame
+            document.documentElement.classList.add('theme-switching');
+
+            // 2. Flip the theme (happens in same frame, no transition)
             applyTheme(isDark);
             localStorage.setItem(STORAGE_KEY, isDark ? 'dark' : 'light');
+
+            // 3. Release the lock on the next paint
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    document.documentElement.classList.remove('theme-switching');
+                });
+            });
         });
     }
 });
