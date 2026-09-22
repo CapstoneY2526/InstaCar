@@ -3,14 +3,20 @@ session_start();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../config/branch_helper.php';
 
-// Auth Check
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
+// Auth Check — allow admin and staff
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'staff'], true)) {
     $_SESSION['error'] = "Access denied.";
     echo '<script>window.location.href = "../../index.php";</script>';
     exit();
 }
 
 $pageTitle = 'Pending Settlements';
+
+// ── Staff are locked to their own branch ──
+if ($_SESSION['role'] === 'staff') {
+    $staff_branch_id = (int)($_SESSION['branch_id'] ?? 0);
+    $_SESSION['view_branch'] = $staff_branch_id > 0 ? (string)$staff_branch_id : 'all';
+}
 
 // ── Active branch label (for subtitle) ──
 $view_branch = $_SESSION['view_branch'] ?? 'all';
@@ -228,7 +234,6 @@ if ($sRes) {
         transition: background-color 0.25s ease, color 0.25s ease;
     }
 
-    /* ── Stat cards ── */
     .stat-card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -263,7 +268,6 @@ if ($sRes) {
         margin-top: 2px;
     }
 
-    /* ── Filter bar ── */
     .filter-card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -307,7 +311,6 @@ if ($sRes) {
         height: 40px;
     }
 
-    /* ── Table + row hover (matches remittance pages) ── */
     .settlement-table-card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -373,7 +376,6 @@ if ($sRes) {
         box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
     }
 
-    /* ── Mobile card ── */
     .pending-card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -418,7 +420,6 @@ if ($sRes) {
         font-size: 1rem;
     }
 
-    /* ── Empty state ── */
     .empty-state {
         text-align: center;
         padding: 60px 20px;
@@ -430,7 +431,6 @@ if ($sRes) {
     .empty-state h5 { color: #334155; margin-bottom: 10px; font-weight: 800; }
     .empty-state p { color: #64748b; }
 
-    /* ── Modal ── */
     .modal-content {
         border: 1px solid #e2e8f0 !important;
         border-radius: 1.25rem !important;
@@ -457,7 +457,6 @@ if ($sRes) {
         color: #0f172a;
     }
 
-    /* ── Dark mode ── */
     body.dark-mode,
     body.dark-mode .main-content {
         background-color: #0a0a0a !important;
@@ -506,7 +505,7 @@ if ($sRes) {
     body.dark-mode .pending-card .card-row { border-color: #27272a !important; }
     body.dark-mode .pending-card .card-actions { background: #1a1600 !important; }
     body.dark-mode .pending-card .card-row-net {background: #1a1600 !important; border-top-color: #ffd700 !important;}
-    body.dark-mode .pending-card .card-net-value {color: #4ade80 !important;}
+    body.dark-mode .pending-card .card-net-value {color: #4ade80 !important; }
 
     body.dark-mode .filter-card .form-select,
     body.dark-mode .filter-card .form-control {
@@ -561,7 +560,6 @@ if ($sRes) {
     }
     body.dark-mode hr { border-color: #27272a !important; opacity: 1 !important; }
 
-    /* ── Responsive: hide table, show cards below 1200px ── */
     @media (min-width: 1200px) {
         .mobile-cards-wrapper { display: none !important; }
     }
@@ -809,6 +807,7 @@ if ($sRes) {
         background-position: right 0.75rem center;
         background-size: 12px 12px;
     }
+
     .hf-select:focus {
         border-color: #ffd700;
         box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.22);
@@ -1045,7 +1044,7 @@ if ($sRes) {
                                     </div>
                                 </div>
                                 <div class="col-12 col-sm-6 col-md-3">
-                                    <a href="settlements.php" class="btn btn-outline-secondary w-100" style="border-radius:10px; height:40px; display:inline-flex; align-items:center; justify-content:center;">
+                                    <a href="staff_settlements.php" class="btn btn-outline-secondary w-100" style="border-radius:10px; height:40px; display:inline-flex; align-items:center; justify-content:center;">
                                         <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
                                     </a>
                                 </div>
@@ -1273,7 +1272,7 @@ if ($sRes) {
                                     <?= $history_scope === 'mine' ? "You haven't settled any bookings yet." : 'No settled bookings found for this branch.' ?>
                                 </p>
                             </div>
-                                                <?php else: ?>
+                        <?php else: ?>
                             <!-- Desktop history table -->
                             <div class="desktop-table-wrapper">
                                 <div class="settlement-table-card">
@@ -1285,8 +1284,7 @@ if ($sRes) {
                                                     <th>Vehicle</th>
                                                     <th>Customer</th>
                                                     <th>Settled By</th>
-                                                    <th class="text-end">Gross</th>
-                                                    <th class="text-end">Net</th>
+                                                    <th class="text-end pe-4">Gross</th>
                                                     <th class="text-end pe-4">Action</th>
                                                 </tr>
                                             </thead>
@@ -1335,9 +1333,8 @@ if ($sRes) {
                                                             </span>
                                                         </td>
                                                         <td class="text-end fw-semibold">₱<?= number_format((float)$h['total_gross'], 2) ?></td>
-                                                        <td class="text-end fw-bold" style="color: #15803d;">₱<?= number_format((float)$h['total_net'], 2) ?></td>
                                                         <td class="text-end pe-4">
-                                                            <a href="process/reset_settlement.php?booking_id=<?= (int)$h['booking_id'] ?>"
+                                                            <a href="../admin/process/reset_settlement.php?booking_id=<?= (int)$h['booking_id'] ?>"
                                                             class="btn-reset-settlement"
                                                             onclick="return confirm('Reset this settlement?\n\nThe existing record will be deleted and the booking will return to Pending so you can re-enter the fees.');">
                                                                 <i class="bi bi-arrow-counterclockwise"></i>
@@ -1406,20 +1403,15 @@ if ($sRes) {
                                             </span>
                                         </div>
 
-                                        <div class="card-row">
-                                            <span class="text-muted small">Gross</span>
-                                            <span class="fw-semibold">₱<?= number_format((float)$h['total_gross'], 2) ?></span>
-                                        </div>
-
                                         <div class="card-row card-row-net">
-                                            <span class="fw-bold">Net</span>
+                                            <span class="fw-bold">Gross</span>
                                             <span class="fw-bold card-net-value">
-                                                ₱<?= number_format((float)$h['total_net'], 2) ?>
+                                                ₱<?= number_format((float)$h['total_gross'], 2) ?>
                                             </span>
                                         </div>
 
                                         <div class="card-actions">
-                                            <a href="process/reset_settlement.php?booking_id=<?= (int)$h['booking_id'] ?>"
+                                            <a href="../admin/process/reset_settlement.php?booking_id=<?= (int)$h['booking_id'] ?>"
                                             class="btn-reset-settlement w-100"
                                             onclick="return confirm('Reset this settlement?\n\nThe existing record will be deleted and the booking will return to Pending so you can re-enter the fees.');">
                                                 <i class="bi bi-arrow-counterclockwise me-1"></i>Resettle
@@ -1445,7 +1437,7 @@ if ($sRes) {
 <?php foreach ($pending as $b): ?>
 <div class="modal fade" id="payModal<?= $b['id'] ?>" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
-        <form action="process/save_payment.php" method="POST" 
+        <form action="../admin/process/save_payment.php" method="POST" 
               class="modal-content border-0 shadow-lg rounded-4 payment-form-node" 
               id="paymentForm<?= $b['id'] ?>"
               data-end-date="<?= $b['end_date'] ?>"
@@ -1463,7 +1455,6 @@ if ($sRes) {
             <div class="modal-body p-4">
                 <input type="hidden" name="booking_id" value="<?= $b['id'] ?>">
                 
-                <!-- Base Rental info card -->
                 <div class="base-rental-card mb-4">
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="label"><i class="bi bi-info-circle me-1"></i>Base Rental Amount:</span>
@@ -1596,13 +1587,11 @@ if ($sRes) {
 </div>
 
 <script>
-// ── Per-modal calculations ──
 (function() {
     const bookingId = <?= $b['id'] ?>;
     const form = document.getElementById('paymentForm' + bookingId);
     if (!form) return;
 
-    // Auto overtime — flat tier, only when genuinely late
     function autoCalculateOvertime() {
         const endDate    = form.getAttribute('data-end-date');
         const returnTime = form.getAttribute('data-return-time');
@@ -1624,7 +1613,6 @@ if ($sRes) {
         const ext11_12 = parseFloat(form.getAttribute('data-ext-11-12')) || 0;
         const ext13_24 = parseFloat(form.getAttribute('data-ext-13-24')) || 0;
 
-        // Flat tier (matches server-side calculatePriceByHours)
         let autoExtensionFee = 0;
         if (lateHours <= 6)       autoExtensionFee = ext1_6;
         else if (lateHours <= 10) autoExtensionFee = ext7_10;
@@ -1691,7 +1679,6 @@ if ($sRes) {
 <?php endforeach; ?>
 
 <script>
-// ── Client-side search ──
 document.addEventListener('DOMContentLoaded', function () {
     const input = document.getElementById('settlementSearch');
     if (!input) return;
@@ -1704,7 +1691,6 @@ document.addEventListener('DOMContentLoaded', function () {
     input.addEventListener('input', function () {
         const q = this.value.trim().toLowerCase();
 
-        // Desktop table rows
         let visDesktop = 0;
         desktopRows.forEach(row => {
             const haystack = row.getAttribute('data-search') || '';
@@ -1714,7 +1700,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         if (noDesktop) noDesktop.classList.toggle('d-none', visDesktop !== 0 || q === '');
 
-        // Mobile cards
         let visMobile = 0;
         mobileCards.forEach(card => {
             const haystack = card.getAttribute('data-search') || '';

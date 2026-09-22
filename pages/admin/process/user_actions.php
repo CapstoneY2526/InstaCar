@@ -27,7 +27,10 @@ if (isset($_POST['add_user'])) {
     $email    = trim($_POST['email']);
     $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
     $phone    = trim($_POST['phone']);
-    $role     = $_POST['role'];
+
+    // Whitelist role to prevent any POST-supplied garbage
+    $allowed_roles = ['user', 'staff', 'operator', 'admin'];
+    $role = in_array($_POST['role'] ?? '', $allowed_roles, true) ? $_POST['role'] : 'user';
 
     // branch_id: NULL for admin, whatever was posted for others
     $final_branch = ($role === 'admin') ? null : $branch_id;
@@ -63,7 +66,10 @@ if (isset($_POST['update_user'])) {
     $name  = trim($_POST['name']);
     $email = trim($_POST['email']);
     $phone = trim($_POST['phone']);
-    $role  = $_POST['role'];
+
+    // Whitelist role (same as add handler)
+    $allowed_roles = ['user', 'staff', 'operator', 'admin'];
+    $role = in_array($_POST['role'] ?? '', $allowed_roles, true) ? $_POST['role'] : 'user';
 
     // branch_id: NULL for admin, whatever was posted for others
     $final_branch = ($role === 'admin') ? null : $branch_id;

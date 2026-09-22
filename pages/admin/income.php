@@ -17,70 +17,90 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
 $pageTitle = 'Income Statement';
 $current_year = date('Y');
 
-// Initialize the data array for all 12 months
-$monthly_data = array_fill(1, 12, ['gross' => 0, 'net' => 0, 'expense' => 0]);
+// Initialize data array for 12 months
+// gross       = total customer payments
+// operator    = sum of operator shares (owed to operators)
+// staff_agent = sum of (total_gross - total_net) = staff + agent payouts
+// company_net = gross - operator - staff_agent
+// expense     = company overhead from expenses table
+// net_profit  = company_net - expense
+$monthly_data = array_fill(1, 12, [
+    'gross' => 0, 'operator' => 0, 'staff_agent' => 0,
+    'company_net' => 0, 'expense' => 0, 'net_profit' => 0
+]);
 
-// 1. Fetch Monthly GROSS Income (total_gross)
-$gross_query = "SELECT 
-                    MONTH(created_at) as month_num, 
-                    COALESCE(SUM(total_gross), 0) as monthly_gross 
-                FROM booking_payments 
-                WHERE YEAR(created_at) = ? 
-                GROUP BY MONTH(created_at)";
+// 1. Gross + Operator + Staff/Agent (single query on booking_payments)
+$q = "SELECT
+          MONTH(created_at) AS month_num,
+          COALESCE(SUM(total_gross), 0)                        AS m_gross,
+          COALESCE(SUM(operator_share), 0)                     AS m_operator,
+          COALESCE(SUM(total_gross - total_net), 0)            AS m_staff_agent
+      FROM booking_payments
+      WHERE YEAR(created_at) = ?
+      GROUP BY MONTH(created_at)";
 
-$stmt_gross = mysqli_prepare($conn, $gross_query);
-if ($stmt_gross) {
-    mysqli_stmt_bind_param($stmt_gross, "i", $current_year);
-    mysqli_stmt_execute($stmt_gross);
-    $gross_res = mysqli_stmt_get_result($stmt_gross);
-    
-    while ($row = mysqli_fetch_assoc($gross_res)) {
-        $monthly_data[$row['month_num']]['gross'] = $row['monthly_gross'];
+$stmt = mysqli_prepare($conn, $q);
+if ($stmt) {
+    mysqli_stmt_bind_param($stmt, "i", $current_year);
+    mysqli_stmt_execute($stmt);
+    $res = mysqli_stmt_get_result($stmt);
+    while ($row = mysqli_fetch_assoc($res)) {
+        $m = (int)$row['month_num'];
+        $monthly_data[$m]['gross']       = (float)$row['m_gross'];
+        $monthly_data[$m]['operator']    = (float)$row['m_operator'];
+        $monthly_data[$m]['staff_agent'] = (float)$row['m_staff_agent'];
+        $monthly_data[$m]['company_net'] = $monthly_data[$m]['gross']
+                                         - $monthly_data[$m]['operator']
+                                         - $monthly_data[$m]['staff_agent'];
     }
-    mysqli_stmt_close($stmt_gross);
+    mysqli_stmt_close($stmt);
 }
 
-// 2. Fetch Monthly NET Income (total_net) - This is what the house actually earns
-$net_query = "SELECT 
-                MONTH(created_at) as month_num, 
-                COALESCE(SUM(total_net), 0) as monthly_net 
-              FROM booking_payments 
-              WHERE YEAR(created_at) = ? 
-              GROUP BY MONTH(created_at)";
+// 2. Expenses
+$q = "SELECT
+          MONTH(expense_date) AS month_num,
+          COALESCE(SUM(amount), 0) AS m_expense
+      FROM expenses
+      WHERE YEAR(expense_date) = ?
+      GROUP BY MONTH(expense_date)";
 
-$stmt_net = mysqli_prepare($conn, $net_query);
-if ($stmt_net) {
-    mysqli_stmt_bind_param($stmt_net, "i", $current_year);
-    mysqli_stmt_execute($stmt_net);
-    $net_res = mysqli_stmt_get_result($stmt_net);
-    
-    while ($row = mysqli_fetch_assoc($net_res)) {
-        $monthly_data[$row['month_num']]['net'] = $row['monthly_net'];
+$stmt = mysqli_prepare($conn, $q);
+if ($stmt) {
+    mysqli_stmt_bind_param($stmt, "i", $current_year);
+    mysqli_stmt_execute($stmt);
+    $res = mysqli_stmt_get_result($stmt);
+    while ($row = mysqli_fetch_assoc($res)) {
+        $m = (int)$row['month_num'];
+        $monthly_data[$m]['expense'] = (float)$row['m_expense'];
     }
-    mysqli_stmt_close($stmt_net);
+    mysqli_stmt_close($stmt);
 }
 
-// 3. Fetch Monthly Expenses
-$exp_query = "SELECT 
-                MONTH(expense_date) as month_num, 
-                COALESCE(SUM(amount), 0) as monthly_expense 
-              FROM expenses 
-              WHERE YEAR(expense_date) = ? 
-              GROUP BY MONTH(expense_date)";
-
-$stmt_exp = mysqli_prepare($conn, $exp_query);
-if ($stmt_exp) {
-    mysqli_stmt_bind_param($stmt_exp, "i", $current_year);
-    mysqli_stmt_execute($stmt_exp);
-    $exp_res = mysqli_stmt_get_result($stmt_exp);
-
-    while ($row = mysqli_fetch_assoc($exp_res)) {
-        $monthly_data[$row['month_num']]['expense'] = $row['monthly_expense'];
-    }
-    mysqli_stmt_close($stmt_exp);
+// 3. Net profit per month
+foreach ($monthly_data as $m => $d) {
+    $monthly_data[$m]['net_profit'] = $d['company_net'] - $d['expense'];
 }
 
 $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// ── Year totals ──
+$total_gross       = 0;
+$total_operator    = 0;
+$total_staff_agent = 0;
+$total_company_net = 0;
+$total_exp         = 0;
+$total_profit      = 0;
+
+foreach ($monthly_data as $d) {
+    $total_gross       += $d['gross'];
+    $total_operator    += $d['operator'];
+    $total_staff_agent += $d['staff_agent'];
+    $total_company_net += $d['company_net'];
+    $total_exp         += $d['expense'];
+    $total_profit      += $d['net_profit'];
+}
+
+$margin = ($total_gross > 0) ? ($total_profit / $total_gross) * 100 : 0;
 ?>
 
 <?php require_once __DIR__ . '/../components/head.php'; ?>
@@ -88,148 +108,211 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-    /* ========================================================
-       BASE LAYOUT & COMPONENT OVERRIDES
-       ======================================================== */
-    body, 
-    button, 
-    input, 
-    select, 
-    textarea, 
-    .form-control, 
-    .btn, 
-    .table,
-    .modal-content { 
-        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; 
+    body, button, input, select, textarea, .form-control, .btn, .table, .modal-content {
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     }
 
-    .main-content { 
+    .main-content {
         background-color: var(--brand-bg, #f8fafc);
-        min-height: 100vh; 
+        min-height: 100vh;
         transition: background-color 0.25s ease, color 0.25s ease;
     }
 
-    .net-profit-cell { width: 150px; }
-    .income-statement-table tr td { padding: 1rem 0.75rem; }
-
-    /* Standard Primary Action Button Styling */
-    .btn-warning-action, .btn-submit-action {
-        background-color: #ffcc00 !important;
-        border-color: #ffcc00 !important;
-        color: #000000 !important;
-        font-weight: 700 !important;
+    /* ── Stat cards ── */
+    .stat-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 1.25rem;
+        padding: 1.15rem 1.25rem;
+        height: 100%;
+        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     }
-    .btn-warning-action:hover, .btn-submit-action:hover {
-        background-color: #e6b800 !important;
-        border-color: #e6b800 !important;
-        color: #000000 !important;
+    .stat-card:hover {
+        transform: translateY(-3px);
+        border-color: #ffd700 !important;
+        box-shadow: 0 0 0 1px #ffd700, 0 8px 24px -8px rgba(255, 215, 0, 0.55) !important;
     }
-
-    /* Professional Print Styles */
-    /* Professional Clean Print / PDF Export Styles */
-@media print {
-    @page { 
-        size: A4 portrait; 
-        margin: 12mm 15mm; 
+    .stat-label {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #475569;
+        font-weight: 700;
+        margin-bottom: 4px;
     }
-
-    body { 
-        background: #ffffff !important; 
-        color: #000000 !important; 
-        -webkit-print-color-adjust: exact !important; 
-        print-color-adjust: exact !important; 
+    .stat-value {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.15;
     }
-
-    /* Hide non-printable navigation & controls */
-    .col-md-2, 
-    .btn, 
-    footer, 
-    .bi, 
-    .sidebar-backdrop, 
-    #sidebarWrapper,
-    header, 
-    .navbar,
-    .alert { 
-        display: none !important; 
+    .stat-sub {
+        font-size: 0.72rem;
+        color: #475569;
+        font-weight: 500;
+        margin-top: 2px;
     }
 
-    /* Layout Reset */
-    .container-fluid, .row, .col-12, .col-lg-10, .main-content {
-        width: 100% !important;
-        max-width: 100% !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        background: transparent !important;
+    /* ── Income table ── */
+    .income-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 1.25rem;
+        overflow: hidden;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
-
-    /* Keep KPI Summary Cards Horizontal (3 Columns) */
-    .row.g-3.mb-4 {
-        display: flex !important;
-        flex-direction: row !important;
-        gap: 12px !important;
-        margin-bottom: 20px !important;
+    .income-card:hover {
+        border-color: #ffd700 !important;
+        box-shadow: 0 0 0 1px #ffd700, 0 6px 18px -6px rgba(255, 215, 0, 0.4) !important;
     }
-
-    .row.g-3.mb-4 > [class*="col-"] {
-        flex: 1 1 0 !important;
-        width: 33.333% !important;
-        max-width: 33.333% !important;
-    }
-
-    .card { 
-        border: 1px solid #e2e8f0 !important; 
-        box-shadow: none !important; 
-        border-radius: 8px !important;
-        background-color: #ffffff !important;
-        page-break-inside: avoid;
-    }
-
-    /* Target specific KPI backgrounds for print color fidelity */
-    .card.bg-success {
-        background-color: #15803d !important;
-        color: #ffffff !important;
-    }
-
-    .card.bg-warning {
-        background-color: #b45309 !important;
-        color: #ffffff !important;
-    }
-
-    /* Table Print Cleanups */
-    .table-responsive {
-        overflow: visible !important;
-    }
-
-    .income-statement-table {
-        width: 100% !important;
-        border-collapse: collapse !important;
-    }
-
-    .income-statement-table th, 
-    .income-statement-table td {
-        border-bottom: 1px solid #e2e8f0 !important;
-        padding: 8px 12px !important;
-        font-size: 0.85rem !important;
-    }
-
     .income-statement-table thead th {
-        background-color: #f1f5f9 !important;
-        color: #334155 !important;
-        font-weight: 700 !important;
+        background: #f1f5f9;
+        font-size: 0.65rem;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: #334155;
+        font-weight: 800;
+        border-bottom: 1px solid #cbd5e1;
+        padding: 0.85rem 0.75rem;
     }
-
+    .income-statement-table tbody td {
+        padding: 0.9rem 0.75rem;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.82rem;
+        color: #0f172a;
+        font-weight: 600;
+    }
+    .income-statement-table tbody tr:hover td {
+        background-color: #fffbe6;
+    }
     .income-statement-table tfoot td {
-        background-color: #0f172a !important;
-        color: #ffffff !important;
-        font-weight: 700 !important;
+        padding: 1rem 0.75rem;
+        font-weight: 800;
+        font-size: 0.85rem;
+        background: #0f172a;
+        color: #ffffff;
+        border-top: 2px solid #020617;
+    }
+    .net-profit-cell { width: 150px; }
+    .col-num { text-align: right; white-space: nowrap; }
+
+    /* ── Buttons ── */
+    .btn-export {
+        padding: 0.55rem 1.25rem;
+        border-radius: 0.65rem;
+        font-weight: 700;
+        font-size: 0.85rem;
+        transition: all 0.2s ease;
+    }
+    .btn-print {
+        background: #0f172a;
+        color: #ffffff;
+        border: 1px solid #0f172a;
+    }
+    .btn-print:hover {
+        background: #1e293b;
+        border-color: #1e293b;
+        color: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.35);
+    }
+    .btn-excel {
+        background: #15803d;
+        color: #ffffff;
+        border: 1px solid #15803d;
+    }
+    .btn-excel:hover {
+        background: #16a34a;
+        border-color: #16a34a;
+        color: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(22, 163, 74, 0.35);
     }
 
-    .income-statement-table tfoot .text-info { color: #38bdf8 !important; }
-    .income-statement-table tfoot .text-warning { color: #fde047 !important; }
-    .income-statement-table tfoot .text-success { color: #4ade80 !important; }
-}
+    /* ── Info panel ── */
+    .info-panel {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 1rem;
+        padding: 1rem 1.25rem;
+    }
+    .info-panel strong { color: #0f172a; }
+    .info-panel small { color: #475569; line-height: 1.7; }
 
-    /* Responsive Mobile Sidebar & Layout Architecture Extensions */
+    /* ── Print styles (unchanged behavior, updated columns) ── */
+    @media print {
+        @page { size: A4 landscape; margin: 10mm 12mm; }
+
+        body {
+            background: #ffffff !important;
+            color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        .col-md-2,
+        .btn-export,
+        footer,
+        .bi,
+        .sidebar-backdrop,
+        #sidebarWrapper,
+        header,
+        .navbar,
+        .info-panel {
+            display: none !important;
+        }
+
+        .container-fluid, .row, .col-12, .col-lg-10, .main-content {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+        }
+
+        .row.g-3.mb-4 {
+            display: flex !important;
+            flex-direction: row !important;
+            gap: 12px !important;
+            margin-bottom: 20px !important;
+        }
+        .row.g-3.mb-4 > [class*="col-"] {
+            flex: 1 1 0 !important;
+            width: 33.333% !important;
+            max-width: 33.333% !important;
+        }
+
+        .stat-card {
+            border: 1px solid #e2e8f0 !important;
+            box-shadow: none !important;
+            border-radius: 8px !important;
+            background-color: #ffffff !important;
+            page-break-inside: avoid;
+        }
+
+        .income-statement-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+        }
+        .income-statement-table th,
+        .income-statement-table td {
+            border-bottom: 1px solid #e2e8f0 !important;
+            padding: 6px 8px !important;
+            font-size: 0.75rem !important;
+        }
+        .income-statement-table thead th {
+            background-color: #f1f5f9 !important;
+            color: #334155 !important;
+            font-weight: 700 !important;
+        }
+        .income-statement-table tfoot td {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+    }
+
+    /* ── Mobile sidebar ── */
     @media (max-width: 991.98px) {
         .mobile-sidebar-container {
             position: fixed;
@@ -244,42 +327,30 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
             overflow-y: auto !important;
             display: block !important;
         }
-
-        .mobile-sidebar-container.show {
-            left: 0 !important;
-        }
+        .mobile-sidebar-container.show { left: 0 !important; }
 
         .sidebar-backdrop {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
             background: rgba(15, 23, 42, 0.5);
             z-index: 1050;
             display: none;
             opacity: 0;
             transition: opacity 0.25s linear;
         }
-        
-        .sidebar-backdrop.show {
-            display: block;
-            opacity: 1;
-        }
+        .sidebar-backdrop.show { display: block; opacity: 1; }
     }
 
     /* ========================================================
-       DARK MODE COMPLETE OVERRIDES & CONTRAST FIXES
+       DARK MODE
        ======================================================== */
     body.dark-mode,
     body.dark-mode .main-content {
         background-color: #0a0a0a !important;
         color: #f1f5f9 !important;
     }
-
-    /* Header & Footer Components */
     body.dark-mode header,
-    body.dark-mode navbar,
     body.dark-mode .navbar,
     body.dark-mode footer,
     body.dark-mode .footer {
@@ -287,78 +358,36 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
         border-color: #27272a !important;
         color: #f1f5f9 !important;
     }
-
-    body.dark-mode footer p,
-    body.dark-mode header span,
-    body.dark-mode header p {
-        color: #a1a1aa !important;
-    }
-
-    /* Mobile Sidebar Dark Overrides */
     body.dark-mode .mobile-sidebar-container {
         background-color: #141414 !important;
         border-right: 1px solid #27272a !important;
     }
-
-    /* Typography & High-Contrast Overrides */
     body.dark-mode .text-dark,
-    body.dark-mode h3,
-    body.dark-mode h4,
-    body.dark-mode h5,
-    body.dark-mode h6,
-    body.dark-mode label {
+    body.dark-mode h3, body.dark-mode h4, body.dark-mode h5,
+    body.dark-mode h6, body.dark-mode label,
+    body.dark-mode .stat-value {
         color: #ffffff !important;
     }
-
     body.dark-mode .text-muted,
     body.dark-mode .text-secondary,
-    body.dark-mode span:not(.badge):not(.text-success):not(.text-primary):not(.text-warning):not(.text-info):not(.text-danger) {
+    body.dark-mode .stat-label,
+    body.dark-mode .stat-sub {
         color: #cbd5e1 !important;
     }
 
-    body.dark-mode .text-primary {
-        color: #38bdf8 !important;
-    }
-
-    body.dark-mode .text-info {
-        color: #38bdf8 !important;
-    }
-
-    body.dark-mode .text-success {
-        color: #22c55e !important;
-    }
-
-    body.dark-mode .text-danger {
-        color: #f87171 !important;
-    }
-
-    body.dark-mode .text-warning {
-        color: #fde047 !important;
-    }
-
-    /* Cards, Alert & Container Surfaces in Dark Mode */
-    body.dark-mode .card,
-    body.dark-mode .alert-light {
+    body.dark-mode .stat-card,
+    body.dark-mode .income-card,
+    body.dark-mode .info-panel {
         background-color: #141414 !important;
         border-color: #27272a !important;
         box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
-        color: #f1f5f9 !important;
+    }
+    body.dark-mode .stat-card:hover,
+    body.dark-mode .income-card:hover {
+        border-color: #ffd700 !important;
+        box-shadow: 0 0 0 1px #ffd700, 0 0 22px rgba(255, 215, 0, 0.4) !important;
     }
 
-    body.dark-mode .card.bg-white {
-        background-color: #141414 !important;
-    }
-
-    /* Dynamic Efficiency Margin Box Dark Adjustments */
-    body.dark-mode .bg-success {
-        background-color: #15803d !important;
-    }
-
-    body.dark-mode .bg-warning {
-        background-color: #b45309 !important;
-    }
-
-    /* Table Component Dark Overrides */
     body.dark-mode .income-statement-table,
     body.dark-mode .income-statement-table tr,
     body.dark-mode .income-statement-table td,
@@ -367,51 +396,30 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
         color: #f1f5f9 !important;
         border-color: #27272a !important;
     }
-
-    body.dark-mode .income-statement-table thead,
-    body.dark-mode .income-statement-table thead tr,
-    body.dark-mode .income-statement-table thead th,
-    body.dark-mode .income-statement-table .bg-light {
+    body.dark-mode .income-statement-table thead th {
         background-color: #1f1f23 !important;
-        color: #94a3b8 !important;
-        border-color: #27272a !important;
+        color: #cbd5e1 !important;
     }
-
-    body.dark-mode .income-statement-table tbody tr:hover {
+    body.dark-mode .income-statement-table tbody tr:hover td {
         background-color: #1a1a1e !important;
     }
-
-    body.dark-mode .income-statement-table tfoot,
-    body.dark-mode .income-statement-table tfoot tr,
-    body.dark-mode .income-statement-table tfoot td,
-    body.dark-mode .income-statement-table .bg-dark {
+    body.dark-mode .income-statement-table tfoot td {
         background-color: #18181b !important;
         color: #ffffff !important;
-        border-color: #27272a !important;
     }
 
-    /* Buttons in Dark Mode */
-    body.dark-mode .btn-dark {
+    body.dark-mode .btn-print {
         background-color: #27272a !important;
         border-color: #3f3f46 !important;
         color: #f1f5f9 !important;
     }
-
-    body.dark-mode .btn-dark:hover {
+    body.dark-mode .btn-print:hover {
         background-color: #3f3f46 !important;
+        border-color: #3f3f46 !important;
         color: #ffffff !important;
     }
-
-    body.dark-mode .btn-success {
-        background-color: #166534 !important;
-        border-color: #15803d !important;
-        color: #ffffff !important;
-    }
-
-    body.dark-mode .btn-success:hover {
-        background-color: #15803d !important;
-        border-color: #16a34a !important;
-    }
+    body.dark-mode .info-panel strong { color: #ffffff; }
+    body.dark-mode .info-panel small  { color: #cbd5e1; }
 </style>
 
 <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
@@ -426,116 +434,125 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
             <?php require_once __DIR__ . '/../components/header.php'; ?>
 
             <div class="p-3 p-md-4">
-               <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+
+                <!-- Header -->
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
                     <div>
-                        <h3 class="fw-bold mb-0 text-dark">Financial Statement</h3>
+                        <h3 class="fw-bold mb-0">Income <span style="color: #ffd700;">Statement</span></h3>
                         <p class="text-muted mb-0 small">Annual performance report for <?= $current_year ?></p>
                     </div>
 
                     <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-dark px-4 py-2 rounded-3 shadow-sm flex-grow-1 flex-md-grow-0" onclick="window.print()">
+                        <button class="btn btn-export btn-print flex-grow-1 flex-md-grow-0" onclick="window.print()">
                             <i class="bi bi-printer me-2"></i>Export PDF
                         </button>
 
-                        <a href="process/export_excel.php" class="btn btn-success px-4 py-2 rounded-3 shadow-sm flex-grow-1 flex-md-grow-0">
+                        <a href="process/export_excel.php" class="btn btn-export btn-excel flex-grow-1 flex-md-grow-0">
                             <i class="bi bi-file-earmark-excel me-2"></i>Export Excel
                         </a>
                     </div>
                 </div>
 
+                <!-- Stats row -->
                 <div class="row g-3 mb-4">
-                    <?php 
-                        $total_gross = 0; 
-                        $total_net = 0; 
-                        $total_exp = 0;
-                        foreach ($monthly_data as $data) {
-                            $total_gross += $data['gross'];
-                            $total_net += $data['net'];
-                            $total_exp += $data['expense'];
-                        }
-                        // Net profit after expenses (using total_net from booking_payments)
-                        $net_profit = $total_net - $total_exp;
-                        $efficiency = ($total_gross > 0) ? ($net_profit / $total_gross) * 100 : 0;
-                    ?>
                     <div class="col-12 col-md-4">
-                        <div class="card border-0 shadow-sm p-3 rounded-4 bg-white">
-                            <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem;">Total Annual Gross</small>
-                            <h4 class="fw-bold text-dark mb-0">₱<?= number_format($total_gross, 2) ?></h4>
-                            <small class="text-muted">Total customer payments</small>
+                        <div class="stat-card">
+                            <div class="stat-label">Total Gross Revenue</div>
+                            <div class="stat-value">₱<?= number_format($total_gross, 2) ?></div>
+                            <div class="stat-sub">All customer payments</div>
                         </div>
                     </div>
-                    <div class="col-12 col-md-4">
-                        <div class="card border-0 shadow-sm p-3 rounded-4 bg-white">
-                            <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem;">Total Net Revenue</small>
-                            <h4 class="fw-bold text-primary mb-0">₱<?= number_format($total_net, 2) ?></h4>
-                            <small class="text-muted">After logistics deductions</small>
+                    <div class="col-6 col-md-4">
+                        <div class="stat-card">
+                            <div class="stat-label">Company Net</div>
+                            <div class="stat-value" style="color:#0369a1;">₱<?= number_format($total_company_net, 2) ?></div>
+                            <div class="stat-sub">After operator + staff payouts</div>
                         </div>
                     </div>
-                    <div class="col-12 col-md-4">
-                        <div class="card border-0 shadow-sm p-3 rounded-4 <?= $efficiency > 30 ? 'bg-success' : 'bg-warning' ?> text-white">
-                            <small class="text-uppercase fw-bold" style="font-size: 0.65rem; opacity: 0.85;">Net Profit Margin</small>
-                            <h4 class="fw-bold mb-0"><?= round($efficiency, 1) ?>%</h4>
-                            <small class="small" style="opacity: 0.85;">Net Profit / Gross Revenue</small>
+                    <div class="col-6 col-md-4">
+                        <div class="stat-card" style="<?= $margin >= 30 ? 'background:#f0fdf4;' : 'background:#fffbeb;' ?>">
+                            <div class="stat-label">Net Profit Margin</div>
+                            <div class="stat-value" style="color: <?= $margin >= 30 ? '#15803d' : '#b45309' ?>;">
+                                <?= number_format($margin, 1) ?>%
+                            </div>
+                            <div class="stat-sub">Net Profit ÷ Gross</div>
                         </div>
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
+                <!-- Income table -->
+                <div class="income-card mb-4">
                     <div class="table-responsive">
-                        <table class="table table-hover income-statement-table align-middle mb-0">
-                            <thead class="bg-light">
+                        <table class="table income-statement-table align-middle mb-0">
+                            <thead>
                                 <tr>
-                                    <th class="ps-4 py-3 text-uppercase small fw-bold text-muted">Month</th>
-                                    <th class="py-3 text-uppercase small fw-bold text-muted text-end">Gross Revenue</th>
-                                    <th class="py-3 text-uppercase small fw-bold text-muted text-end">Net Revenue</th>
-                                    <th class="py-3 text-uppercase small fw-bold text-muted text-end">Expenses</th>
-                                    <th class="pe-4 py-3 text-uppercase small fw-bold text-muted text-end net-profit-cell">Net Profit</th>
+                                    <th class="ps-4 text-start">Month</th>
+                                    <th class="col-num">Gross Revenue</th>
+                                    <th class="col-num">Operator Payouts</th>
+                                    <th class="col-num">Staff / Agent</th>
+                                    <th class="col-num">Company Net</th>
+                                    <th class="col-num">Expenses</th>
+                                    <th class="pe-4 col-num">Net Profit</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($monthly_data as $m_num => $data): 
-                                    $net = $data['net'] - $data['expense'];
-                                    // Only show months that have passed or have data
-                                    if ($m_num <= date('n') || $data['gross'] > 0):
+                                <?php foreach ($monthly_data as $m_num => $d):
+                                    if ($m_num <= date('n') || $d['gross'] > 0):
                                 ?>
                                 <tr>
                                     <td class="ps-4 fw-bold text-dark"><?= $months[$m_num-1] ?></td>
-                                    <td class="text-end">₱<?= number_format($data['gross'], 2) ?></td>
-                                    <td class="text-end text-primary">₱<?= number_format($data['net'], 2) ?></td>
-                                    <td class="text-end text-danger">₱<?= number_format($data['expense'], 2) ?></td>
-                                    <td class="pe-4 text-end">
-                                        <span class="fw-bold <?= $net >= 0 ? 'text-success' : 'text-danger' ?>">
-                                            ₱<?= number_format($net, 2) ?>
-                                        </span>
+                                    <td class="col-num">₱<?= number_format($d['gross'], 2) ?></td>
+                                    <td class="col-num" style="color:#b45309;">
+                                        <?= $d['operator'] > 0 ? '-₱' . number_format($d['operator'], 2) : '—' ?>
+                                    </td>
+                                    <td class="col-num" style="color:#7c3aed;">
+                                        <?= $d['staff_agent'] > 0 ? '-₱' . number_format($d['staff_agent'], 2) : '—' ?>
+                                    </td>
+                                    <td class="col-num fw-bold" style="color:#0369a1;">
+                                        ₱<?= number_format($d['company_net'], 2) ?>
+                                    </td>
+                                    <td class="col-num" style="color:#b91c1c;">
+                                        <?= $d['expense'] > 0 ? '-₱' . number_format($d['expense'], 2) : '—' ?>
+                                    </td>
+                                    <td class="pe-4 col-num fw-bold" style="color: <?= $d['net_profit'] >= 0 ? '#15803d' : '#b91c1c' ?>;">
+                                        ₱<?= number_format($d['net_profit'], 2) ?>
                                     </td>
                                 </tr>
                                 <?php endif; endforeach; ?>
                             </tbody>
-                            <tfoot class="bg-dark text-white fw-bold">
+                            <tfoot>
                                 <tr>
-                                    <td class="ps-4 py-3">GRAND TOTAL</td>
-                                    <td class="py-3 text-end">₱<?= number_format($total_gross, 2) ?></td>
-                                    <td class="py-3 text-end text-info">₱<?= number_format($total_net, 2) ?></td>
-                                    <td class="py-3 text-end text-warning">₱<?= number_format($total_exp, 2) ?></td>
-                                    <td class="pe-4 py-3 text-end text-success" style="font-size: 1.1rem;">₱<?= number_format($net_profit, 2) ?></td>
+                                    <td class="ps-4">GRAND TOTAL</td>
+                                    <td class="col-num">₱<?= number_format($total_gross, 2) ?></td>
+                                    <td class="col-num" style="color:#fde047;">-₱<?= number_format($total_operator, 2) ?></td>
+                                    <td class="col-num" style="color:#c4b5fd;">-₱<?= number_format($total_staff_agent, 2) ?></td>
+                                    <td class="col-num" style="color:#7dd3fc;">₱<?= number_format($total_company_net, 2) ?></td>
+                                    <td class="col-num" style="color:#fca5a5;">-₱<?= number_format($total_exp, 2) ?></td>
+                                    <td class="pe-4 col-num" style="color:#4ade80; font-size: 1rem;">
+                                        ₱<?= number_format($total_profit, 2) ?>
+                                    </td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
                 </div>
-                
-                <div class="alert alert-light border-0 shadow-sm rounded-4 p-3 mb-0">
-                    <div class="d-flex gap-3 align-items-center text-muted">
-                        <i class="bi bi-info-circle fs-5 flex-shrink-0 text-primary"></i>
+
+                <!-- Legend / info panel -->
+                <div class="info-panel">
+                    <div class="d-flex gap-3 align-items-start">
+                        <i class="bi bi-info-circle fs-5 flex-shrink-0" style="color:#0369a1;"></i>
                         <small>
-                            <strong class="text-dark">Financial Breakdown:</strong><br>
-                            • <strong>Gross Revenue</strong> = Total collected from customers<br>
-                            • <strong>Net Revenue</strong> = What the house receives after standard transactional logistics cuts<br>
-                            • <strong>Expenses</strong> = Operational costs (carwash, fuel, damage, etc.)<br>
-                            • <strong>Net Profit</strong> = Final profit after all deductions
+                            <strong>Financial Breakdown</strong><br>
+                            • <strong>Gross Revenue</strong> = everything customers paid<br>
+                            • <strong>Operator Payouts</strong> = sum of operator shares (owed to operators)<br>
+                            • <strong>Staff / Agent</strong> = staff delivery + staff pickup + agent fees<br>
+                            • <strong>Company Net</strong> = Gross − Operator − Staff/Agent<br>
+                            • <strong>Expenses</strong> = company overhead (rent, salaries, etc.)<br>
+                            • <strong>Net Profit</strong> = Company Net − Expenses
                         </small>
                     </div>
                 </div>
+
             </div>
 
             <div class="mt-auto">
@@ -546,11 +563,11 @@ $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 </div>
 
 <script>
-// Mobile Sidebar Active Target Capture Control Script Engine
+// Mobile sidebar toggle
 document.addEventListener("DOMContentLoaded", function () {
     const dynamicHeaderArea = document.querySelector('.main-content header, .main-content nav, .container-fluid');
     let toggleBtn = null;
-    
+
     if (dynamicHeaderArea) {
         const componentButtons = dynamicHeaderArea.getElementsByTagName('button');
         for (let btn of componentButtons) {
@@ -560,7 +577,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
     }
-    
+
     if (!toggleBtn) {
         toggleBtn = document.querySelector('header button, .navbar-toggler, .bg-warning button');
     }

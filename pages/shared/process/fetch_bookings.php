@@ -17,25 +17,31 @@ $events = [];
 $session_user_id = (int)$_SESSION['user_id'];
 $session_role    = $_SESSION['role'] ?? '';
 
-// Role-based scoping:
-//   operator → own cars only (ownership filter)
-//   staff    → own branch only (branch filter)
-//   admin    → no filter (full fleet overview)
-$user_id   = 0;   // used for ownership filter (operators)
-$branch_id = 0;   // used for branch filter   (staff)
-
-if ($session_role === 'operator') {
-    $user_id = $session_user_id;
-} elseif ($session_role === 'staff') {
-    $branch_id = (int)($_SESSION['branch_id'] ?? 0);
+// ============================================================
+// BRANCH SCOPE (mirrors staff_settlements.php convention)
+// ============================================================
+if ($session_role === 'staff') {
+    $staff_branch_id = (int)($_SESSION['branch_id'] ?? 0);
+    $_SESSION['view_branch'] = $staff_branch_id > 0 ? (string)$staff_branch_id : 'all';
 }
 
-// FullCalendar visible window range
+$view_branch = $_SESSION['view_branch'] ?? 'all';
+
+$branch_filter = 0;
+if ($view_branch !== 'all') {
+    $branch_filter = (int)$view_branch;
+}
+
+$operator_id = 0;
+if ($session_role === 'operator') {
+    $operator_id = $session_user_id;
+}
+
 $range_start = isset($_GET['start']) ? $_GET['start'] : null;
 $range_end   = isset($_GET['end'])   ? $_GET['end']   : null;
 
 // ============================================================
-// PART 1 — LOAD BOOKINGS (existing logic, unchanged)
+// PART 1 — LOAD BOOKINGS (one event per booking)
 // ============================================================
 $sql = "SELECT b.*, 
                c.brand, c.model, c.color as vehicle_color, 
@@ -47,24 +53,20 @@ $sql = "SELECT b.*,
 
 $params = [];
 $types  = '';
-
 $where_conditions = [];
 
-// Operator filter: only show bookings for cars owned by this operator
-if ($user_id > 0) {
+if ($operator_id > 0) {
     $where_conditions[] = "c.user_id = ?";
-    $params[] = $user_id;
+    $params[] = $operator_id;
     $types .= 'i';
 }
 
-// Staff filter: only show bookings for cars at this branch
-if ($branch_id > 0) {
-    $where_conditions[] = "c.branch_id = ?";
-    $params[] = $branch_id;
+if ($branch_filter > 0) {
+    $where_conditions[] = "b.branch_id = ?";
+    $params[] = $branch_filter;
     $types .= 'i';
 }
 
-// Date range filter
 if ($range_start && $range_end) {
     $where_conditions[] = "b.start_date < ? AND b.end_date >= ?";
     $params[] = $range_end;
@@ -135,13 +137,15 @@ if ($result) {
             'borderColor'     => $color,
             'textColor'       => $color,
             'extendedProps'   => [
-                'type'      => 'booking',
-                'status'    => $row['status'],
-                'brand'     => $car_brand,
-                'model'     => $car_model,
-                'color'     => $car_color,
-                'raw_start' => date('Y-m-d H:i:s', $start_timestamp),
-                'raw_end'   => date('Y-m-d H:i:s', $end_timestamp)
+                'type'        => 'booking',
+                'status'      => $row['status'],
+                'brand'       => $car_brand,
+                'model'       => $car_model,
+                'color'       => $car_color,
+                'raw_start'   => date('Y-m-d H:i:s', $start_timestamp),
+                'raw_end'     => date('Y-m-d H:i:s', $end_timestamp),
+                'start_only'  => $start_date_only,
+                'end_only'    => $end_date_only,
             ]
         ];
     }
@@ -152,7 +156,7 @@ if ($result) {
 }
 
 // ============================================================
-// PART 2 — LOAD CAR SCHEDULES (maintenance, personal use, etc.)
+// PART 2 — LOAD CAR SCHEDULES
 // ============================================================
 $schedSql = "SELECT cs.id, cs.car_id, cs.start_date, cs.end_date, cs.reason, cs.notes,
                     c.brand, c.model, c.color AS vehicle_color, c.user_id AS car_owner_id,
@@ -165,21 +169,18 @@ $schedParams = [];
 $schedTypes  = '';
 $schedWhere  = [];
 
-// Operator filter: only their cars' schedules
-if ($user_id > 0) {
+if ($operator_id > 0) {
     $schedWhere[] = "c.user_id = ?";
-    $schedParams[] = $user_id;
+    $schedParams[] = $operator_id;
     $schedTypes .= 'i';
 }
 
-// Staff filter: only schedules for cars at this branch
-if ($branch_id > 0) {
+if ($branch_filter > 0) {
     $schedWhere[] = "c.branch_id = ?";
-    $schedParams[] = $branch_id;
+    $schedParams[] = $branch_filter;
     $schedTypes .= 'i';
 }
 
-// Date range filter (overlap)
 if ($range_start && $range_end) {
     $schedWhere[] = "cs.start_date < ? AND cs.end_date >= ?";
     $schedParams[] = $range_end;
@@ -203,7 +204,6 @@ if ($schedParams) {
 }
 
 if ($schedResult) {
-    // Distinct reason color and prefix
     $reasonMap = [
         'Maintenance'  => ['icon' => '🚧', 'prefix' => 'Maintenance'],
         'Personal Use' => ['icon' => '👤', 'prefix' => 'Personal Use'],
@@ -221,10 +221,8 @@ if ($schedResult) {
 
         $s_start = date('Y-m-d', strtotime($srow['start_date']));
         $s_end   = date('Y-m-d', strtotime($srow['end_date']));
-        // FullCalendar inclusive end +1 day for multi-day bars
         $fc_sched_end = date('Y-m-d', strtotime($srow['end_date'] . ' +1 day'));
 
-        // Use a string prefix on the ID so it can't collide with booking IDs
         $events[] = [
             'id'              => 'schedule-' . $srow['id'],
             'title'           => $meta['icon'] . ' ' . $meta['prefix'] . ' • ' . $car_brand . ' ' . $car_model,
@@ -244,7 +242,9 @@ if ($schedResult) {
                 'color'        => $car_color,
                 'created_by'   => $srow['created_by_name'] ?? '',
                 'raw_start'    => $s_start . ' 00:00:00',
-                'raw_end'      => $s_end . ' 23:59:59'
+                'raw_end'      => $s_end . ' 23:59:59',
+                'start_only'   => $s_start,
+                'end_only'     => $s_end,
             ]
         ];
     }

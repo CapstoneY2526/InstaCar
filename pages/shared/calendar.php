@@ -11,21 +11,38 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = $_SESSION['user_id'];
 $user_role = $_SESSION['role'];
+
+// ── Branch label ──
+if ($user_role === 'staff') {
+    $staff_branch_id = (int)($_SESSION['branch_id'] ?? 0);
+    $_SESSION['view_branch'] = $staff_branch_id > 0 ? (string)$staff_branch_id : 'all';
+}
+
+$view_branch = $_SESSION['view_branch'] ?? 'all';
+$branch_label = 'All Branches';
+if ($view_branch !== 'all') {
+    $bid = (int)$view_branch;
+    if ($bid > 0) {
+        $bStmt = $conn->prepare("SELECT name FROM branches WHERE id = ? LIMIT 1");
+        $bStmt->bind_param('i', $bid);
+        $bStmt->execute();
+        $bRow = $bStmt->get_result()->fetch_assoc();
+        $bStmt->close();
+        if ($bRow) $branch_label = $bRow['name'];
+    }
+}
+
 $pageTitle = 'Booking Calendar';
 
 require_once __DIR__ . '/../components/head.php'; 
 ?>
 
-<!-- Google Font: Inter -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-    /* ========================================================
-       BASE LIGHT/DARK LAYOUT & COMPONENT OVERRIDES
-       ======================================================== */
     body, 
     button, 
     input, 
@@ -187,7 +204,7 @@ require_once __DIR__ . '/../components/head.php';
     }
 
     /* ========================================================
-       DARK MODE COMPLETE OVERRIDES & FULLCALENDAR CONTRAST FIXES
+       DARK MODE
        ======================================================== */
     body.dark-mode,
     body.dark-mode .main-content {
@@ -195,7 +212,6 @@ require_once __DIR__ . '/../components/head.php';
         color: #f1f5f9 !important;
     }
 
-    /* Header & Footer Components */
     body.dark-mode header,
     body.dark-mode navbar,
     body.dark-mode .navbar,
@@ -212,7 +228,6 @@ require_once __DIR__ . '/../components/head.php';
         color: #a1a1aa !important;
     }
 
-    /* Calendar Card Container */
     body.dark-mode .calendar-card {
         background-color: #141414 !important;
         border-color: #27272a !important;
@@ -223,14 +238,12 @@ require_once __DIR__ . '/../components/head.php';
         color: #ffffff !important;
     }
 
-    /* Grid & Borders */
     body.dark-mode .fc-theme-standard td,
     body.dark-mode .fc-theme-standard th,
     body.dark-mode .fc-theme-standard .fc-scrollgrid {
         border-color: #27272a !important;
     }
 
-    /* Header Days Bar (Sun, Mon, Tue...) Dark Overrides */
     body.dark-mode .fc .fc-col-header,
     body.dark-mode .fc .fc-col-header-cell {
         background-color: #1f1f1f !important;
@@ -241,7 +254,6 @@ require_once __DIR__ . '/../components/head.php';
         font-weight: 600 !important;
     }
 
-    /* Day Numbers */
     body.dark-mode .fc .fc-daygrid-day-number {
         color: #ffcc00 !important;
     }
@@ -250,7 +262,6 @@ require_once __DIR__ . '/../components/head.php';
         color: #a1a1aa !important;
     }
 
-    /* Active Today Highlight */
     body.dark-mode .fc-day-today {
         background: #1f1f1f !important;
     }
@@ -261,7 +272,6 @@ require_once __DIR__ . '/../components/head.php';
         font-weight: bold !important;
     }
 
-    /* Toolbar Buttons */
     body.dark-mode .fc .fc-button-primary {
         background-color: #1f1f1f !important;
         color: #f1f5f9 !important;
@@ -275,7 +285,6 @@ require_once __DIR__ . '/../components/head.php';
         color: #ffcc00 !important;
     }
 
-    /* Event Text Visibility Fix (Month & List View) */
     body.dark-mode .fc-event-main,
     body.dark-mode .fc-event-main-frame,
     body.dark-mode .fc-event-title,
@@ -284,7 +293,6 @@ require_once __DIR__ . '/../components/head.php';
         font-weight: 500 !important;
     }
 
-    /* FullCalendar List View Dark Overrides */
     body.dark-mode .fc-list,
     body.dark-mode .fc-list-table {
         background-color: #141414 !important;
@@ -321,7 +329,6 @@ require_once __DIR__ . '/../components/head.php';
         color: #ffcc00 !important;
     }
 
-    /* Popover Styling */
     body.dark-mode .fc-popover {
         background-color: #141414 !important;
         border: 1px solid #27272a !important;
@@ -336,7 +343,6 @@ require_once __DIR__ . '/../components/head.php';
         background-color: #141414 !important;
     }
 
-    /* Dynamic Agenda & Modal Dark Overrides */
     body.dark-mode .agenda-item-card {
         background-color: #1f1f1f !important;
         border: 1px solid #27272a !important;
@@ -350,7 +356,6 @@ require_once __DIR__ . '/../components/head.php';
         border-color: #27272a !important;
     }
 
-    /* Text & Typography */
     body.dark-mode .text-dark,
     body.dark-mode h3,
     body.dark-mode h4,
@@ -365,7 +370,6 @@ require_once __DIR__ . '/../components/head.php';
         color: #a1a1aa !important;
     }
 
-    /* Modals */
     body.dark-mode .modal-content {
         background-color: #141414 !important;
         border: 1px solid #27272a !important;
@@ -390,7 +394,6 @@ require_once __DIR__ . '/../components/head.php';
         filter: invert(1) grayscale(100%) brightness(200%);
     }
 
-    /* Buttons */
     body.dark-mode .btn-white {
         background-color: #141414 !important;
         color: #f1f5f9 !important;
@@ -448,7 +451,7 @@ require_once __DIR__ . '/../components/head.php';
     }
 
     /* ========================================================
-       STATUS-BASED EVENT COLORS (matches legend: Pending / Approved / Completed / Cancelled)
+       STATUS-BASED EVENT COLORS
        ======================================================== */
     .fc-event.status-pending {
         background-color: #f59e0b !important;
@@ -490,10 +493,8 @@ require_once __DIR__ . '/../components/head.php';
         color: #ffffff !important;
     }
 
-    /* Dim cancelled bookings slightly so active ones stand out, but keep readable */
     .fc-event.status-cancelled { opacity: 0.85; }
 
-    /* Schedule blocks (maintenance, personal use, etc.) — purple */
     .fc-event.status-schedule {
         background-color: #8b5cf6 !important;
         border-color: #8b5cf6 !important;
@@ -508,10 +509,8 @@ require_once __DIR__ . '/../components/head.php';
     .fc-list-event.status-schedule .fc-list-event-dot { border-color: #8b5cf6 !important; }
     .fc-list-event.status-schedule .status-chip { background: #8b5cf6; color: #fff; }
 
-    /* Legend swatch for schedule */
     .legend-schedule { color: #8b5cf6; }
 
-    /* List view dot bullet + time text should also carry the status color */
     .fc-list-event.status-pending .fc-list-event-dot { border-color: #f59e0b !important; }
     .fc-list-event.status-approved .fc-list-event-dot { border-color: #10b981 !important; }
     .fc-list-event.status-completed .fc-list-event-dot { border-color: #3b82f6 !important; }
@@ -523,7 +522,7 @@ require_once __DIR__ . '/../components/head.php';
     .fc-list-event.status-cancelled .status-chip { background:#ef4444; color:#fff; }
 
     /* ========================================================
-       LIST VIEW — polished, responsive styling (mobile / tablet / laptop)
+       LIST VIEW
        ======================================================== */
     .fc-list {
         border-radius: 0.9rem !important;
@@ -639,7 +638,6 @@ require_once __DIR__ . '/../components/head.php';
         background-color: #141414 !important;
     }
 
-    /* Tablet */
     @media (max-width: 992px) {
         .fc-list-day-cushion { padding: 8px 12px !important; }
         .fc-list-day-text, .fc-list-day-side-text { font-size: 0.82rem; }
@@ -647,7 +645,6 @@ require_once __DIR__ . '/../components/head.php';
         .fc-list-event-title { font-size: 0.8rem !important; }
     }
 
-    /* Mobile */
     @media (max-width: 576px) {
         .fc-toolbar-chunk .fc-button {
             padding: 0.4rem 0.65rem !important;
@@ -678,9 +675,9 @@ require_once __DIR__ . '/../components/head.php';
                         <p class="text-muted mb-0 small">
                             <?php
                                 if ($user_role === 'admin') {
-                                    echo "Full fleet overview.";
+                                    echo htmlspecialchars($branch_label) . " · Full fleet overview.";
                                 } elseif ($user_role === 'staff') {
-                                    echo "Bookings at your branch.";
+                                    echo htmlspecialchars($branch_label) . " · Bookings at your branch.";
                                 } else {
                                     echo "Your assigned vehicle bookings.";
                                 }
@@ -696,12 +693,12 @@ require_once __DIR__ . '/../components/head.php';
 
                 <div class="calendar-card mb-5">
                     <div class="d-flex justify-content-center gap-2 mb-3 flex-wrap">
-                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #f59e0b;">● Pending</small>
-                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #10b981;">● Approved</small>
-                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #3b82f6;">● Completed</small>
-                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #ef4444;">● Cancelled</small>
-                    <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #8b5cf6;">● Schedule Block</small>
-                </div>
+                        <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #f59e0b;">● Pending</small>
+                        <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #10b981;">● Approved</small>
+                        <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #3b82f6;">● Completed</small>
+                        <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #ef4444;">● Cancelled</small>
+                        <small class="fw-bold text-uppercase" style="font-size: 0.65rem; color: #8b5cf6;">● Schedule Block</small>
+                    </div>
 
                     <div id="calendar"></div>
                 </div>
@@ -735,11 +732,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var dailyAgendaModal = new bootstrap.Modal(document.getElementById('dailyAgendaModal'));
     var userRole = '<?= $user_role ?>';
-    var userId = '<?= $user_id ?>';
 
     function redirectToDetails(eventId) {
-        // Operators and everyone else use the same detail page — booking_details.php
-        // already scopes what each role can see.
         window.location.href = 'booking_details.php?id=' + eventId;
     }
 
@@ -768,16 +762,9 @@ document.addEventListener('DOMContentLoaded', function() {
         dayMaxEvents: 4,
         moreLinkClick: "popover", 
         events: function(fetchInfo, successCallback, failureCallback) {
-            let url = 'process/fetch_bookings.php';
-            if (userRole === 'operator') {
-                url += '?user_id=' + userId;
-            }
-            
-            fetch(url)
+            fetch('process/fetch_bookings.php')
                 .then(response => response.json())
-                .then(data => {
-                    successCallback(data);
-                })
+                .then(data => successCallback(data))
                 .catch(error => {
                     console.error('Error fetching bookings:', error);
                     failureCallback(error);
@@ -814,7 +801,6 @@ document.addEventListener('DOMContentLoaded', function() {
             let timeStr = '';
 
             if (isSchedule) {
-                // Schedule blocks are whole-day — show a synthetic all-day time range
                 timeStr = '00:00 - 00:00 (All-Day)';
             } else {
                 const releaseTime = formatToMilitaryTime(rawStart);
@@ -945,7 +931,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
                 const statusColor = colors[props.status] || '#64748b';
 
-                // Build a date range label ("Sep 12" or "Sep 12 → Sep 15")
                 const startDateLabel = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                 const endDateLabel   = end.toLocaleDateString('en-US',   { month: 'short', day: 'numeric' });
                 const sameDay        = (startIsoStr === endIsoStr);
@@ -978,7 +963,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 `;
 
                 itemDiv.addEventListener('click', function() {
-                    if (props.type === 'schedule') return; // schedules have no detail page
+                    if (props.type === 'schedule') return;
                     dailyAgendaModal.hide(); 
                     redirectToDetails(evt.id);
                 });

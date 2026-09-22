@@ -2,72 +2,222 @@
 session_start();
 require_once __DIR__ . '/../../config/database.php';
 
-// Auth Check - JS Redirect
+// Admin-only guard
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     $_SESSION['error'] = "Access denied.";
     ?>
-    <script>
-        window.stop();
-        window.location.href = "../../index.php";
-    </script>
+    <script>window.stop(); window.location.href = "../../index.php";</script>
     <?php
     exit();
 }
 
-$pageTitle = 'Operator Revenue';
-$current_year = date('Y');
+$pageTitle = 'Operator Remittances';
+$current_actor_id = (int)$_SESSION['user_id'];
 
-$selected_owner = $_GET['owner_id'] ?? 'all';
-$selected_car = $_GET['car_id'] ?? 'all';
-
-// 1. Fetch Operators (Procedural)
-$owners_res = mysqli_query($conn, "SELECT id, name FROM users WHERE role = 'operator' ORDER BY name ASC");
-
-// 2. Fetch Cars (Procedural)
-$car_dropdown_sql = "SELECT id, brand, model, plate_number FROM cars";
-if ($selected_owner !== 'all') {
-    $car_dropdown_sql .= " WHERE user_id = " . intval($selected_owner);
+// ── Branch scope from header switcher ──
+$view_branch = $_SESSION['view_branch'] ?? 'all';
+$branch_filter_id = 0;
+$branch_filter_active = false;
+if ($view_branch !== 'all') {
+    $branch_filter_id = (int)$view_branch;
+    $branch_filter_active = $branch_filter_id > 0;
 }
-$cars_dropdown_res = mysqli_query($conn, $car_dropdown_sql);
 
-// 3. Build Query Logic
-$where_clauses = ["YEAR(b.created_at) = $current_year", "b.status = 'Completed'"];
-if ($selected_owner !== 'all') $where_clauses[] = "c.user_id = " . intval($selected_owner);
-if ($selected_car !== 'all') $where_clauses[] = "c.id = " . intval($selected_car);
+// ── Filters from URL ──
+$filter_operator = $_GET['operator_id'] ?? 'all';
+$filter_status   = $_GET['status']      ?? 'all';
 
-$where_str = implode(" AND ", $where_clauses);
+// ── Load filter dropdown data ──
+$operators = [];
+$opRes = mysqli_query($conn, "SELECT id, name FROM users WHERE role = 'operator' ORDER BY name ASC");
+while ($row = mysqli_fetch_assoc($opRes)) $operators[] = $row;
 
-$query = "SELECT 
-            c.brand, c.model, c.plate_number, c.id as car_id,
-            u.name as owner_name,
-            MONTH(b.created_at) as month_num,
-            SUM(COALESCE(p.total_gross, b.total_price)) as gross,
-            SUM(COALESCE(p.total_net, b.total_price * 0.8)) as owner_share,
-            SUM(COALESCE(p.total_gross - p.total_net - p.driver_fee - p.agent_fee, b.total_price * 0.2)) as mgt_income
-          FROM cars c
-          INNER JOIN users u ON c.user_id = u.id
-          INNER JOIN bookings b ON c.id = b.car_id
-          LEFT JOIN booking_payments p ON b.id = p.booking_id
-          WHERE $where_str AND u.role = 'operator'
-          GROUP BY c.id, MONTH(b.created_at)
-          ORDER BY u.name ASC, c.id ASC, month_num ASC";
+// ── Build the per-car owed / paid / balance query ──
+$sql = "
+    SELECT
+        c.id AS car_id,
+        c.brand,
+        c.model,
+        c.plate_number,
+        c.branch_id,
+        b.name AS branch_name,
+        u.id   AS operator_id,
+        u.name AS operator_name,
 
-$res = mysqli_query($conn, $query);
-$car_data = [];
-$grand_total_mgt = 0;
+        COALESCE(owed.total_owed, 0) AS total_owed,
+        COALESCE(paid.total_paid, 0) AS total_paid
 
-if ($res && mysqli_num_rows($res) > 0) {
-    while ($row = mysqli_fetch_assoc($res)) {
-        $car_key = $row['brand'] . ' ' . $row['model'] . ' [' . $row['plate_number'] . ']';
-        $car_data[$car_key]['owner'] = $row['owner_name'];
-        $car_data[$car_key]['months'][$row['month_num']] = $row;
-        $grand_total_mgt += $row['mgt_income'];
+    FROM cars c
+    INNER JOIN users u
+        ON c.user_id = u.id
+       AND u.role = 'operator'
+    LEFT JOIN branches b ON c.branch_id = b.id
+
+    LEFT JOIN (
+        SELECT
+            bk.car_id,
+            SUM(bp.operator_share) AS total_owed
+        FROM booking_payments bp
+        INNER JOIN bookings bk ON bp.booking_id = bk.id
+        WHERE bp.operator_share > 0
+        GROUP BY bk.car_id
+    ) owed ON owed.car_id = c.id
+
+    LEFT JOIN (
+        SELECT
+            car_id,
+            SUM(amount) AS total_paid
+        FROM operator_remittances
+        GROUP BY car_id
+    ) paid ON paid.car_id = c.id
+
+    WHERE 1=1
+";
+
+$params = [];
+$types  = '';
+
+if ($branch_filter_active) {
+    $sql .= " AND c.branch_id = ?";
+    $params[] = $branch_filter_id;
+    $types   .= 'i';
+}
+
+if ($filter_operator !== 'all') {
+    $sql .= " AND u.id = ?";
+    $params[] = (int)$filter_operator;
+    $types   .= 'i';
+}
+
+$sql .= " ORDER BY u.name ASC, c.brand ASC, c.model ASC";
+
+$stmt = $conn->prepare($sql);
+if ($params) {
+    $stmt->bind_param($types, ...$params);
+}
+$stmt->execute();
+$res = $stmt->get_result();
+
+$cars = [];
+while ($row = $res->fetch_assoc()) {
+    $owed = (float)$row['total_owed'];
+    $paid = (float)$row['total_paid'];
+    $balance = $owed - $paid;
+
+    if ($owed <= 0) {
+        $status = 'no-activity';
+    } elseif ($paid <= 0) {
+        $status = 'unpaid';
+    } elseif ($paid >= $owed) {
+        $status = 'paid';
+    } else {
+        $status = 'partial';
     }
-} elseif (!$res) {
-    die("Revenue Query Failed: " . mysqli_error($conn));
+
+    if ($filter_status !== 'all') {
+        $statusMap = ['unpaid','partial','paid','no-activity'];
+        if (!in_array($filter_status, $statusMap) || $status !== $filter_status) {
+            continue;
+        }
+    }
+
+    $row['total_owed']  = $owed;
+    $row['total_paid']  = $paid;
+    $row['balance']     = $balance;
+    $row['status']      = $status;
+    $cars[] = $row;
+}
+$stmt->close();
+
+// ── Fetch remittances + their photos ──
+$car_ids = array_column($cars, 'car_id');
+$remittances_by_car = [];
+if (!empty($car_ids)) {
+    $in = implode(',', array_map('intval', $car_ids));
+    $remRes = mysqli_query($conn, "
+        SELECT r.*, u.name AS recorded_by_name
+        FROM operator_remittances r
+        LEFT JOIN users u ON r.recorded_by = u.id
+        WHERE r.car_id IN ($in)
+        ORDER BY r.payment_date DESC, r.id DESC
+    ");
+    $remit_ids = [];
+    $rows = [];
+    while ($row = mysqli_fetch_assoc($remRes)) {
+        $rows[] = $row;
+        $remit_ids[] = (int)$row['id'];
+    }
+
+    // Fetch photos grouped by remittance_id
+    $photos_by_remit = [];
+    if (!empty($remit_ids)) {
+        $in2 = implode(',', array_map('intval', $remit_ids));
+        $photoRes = mysqli_query($conn, "
+            SELECT id, remittance_id, file_name
+            FROM operator_remittance_photos
+            WHERE remittance_id IN ($in2)
+            ORDER BY id ASC
+        ");
+        while ($p = mysqli_fetch_assoc($photoRes)) {
+            $photos_by_remit[(int)$p['remittance_id']][] = [
+                'id'        => (int)$p['id'],
+                'file_name' => $p['file_name'],
+            ];
+        }
+    }
+
+    foreach ($rows as $row) {
+        $row['photos'] = $photos_by_remit[(int)$row['id']] ?? [];
+        $remittances_by_car[(int)$row['car_id']][] = $row;
+    }
 }
 
-$months = [1=>"JAN", 2=>"FEB", 3=>"MAR", 4=>"APR", 5=>"MAY", 6=>"JUN", 7=>"JUL", 8=>"AUG", 9=>"SEP", 10=>"OCT", 11=>"NOV", 12=>"DEC"];
+// ── Fetch contributing bookings ──
+$bookings_by_car = [];
+if (!empty($car_ids)) {
+    $in = implode(',', array_map('intval', $car_ids));
+    $bookRes = mysqli_query($conn, "
+        SELECT
+            bp.booking_id,
+            bp.operator_share,
+            bp.created_at AS settled_at,
+            b.car_id,
+            b.start_date,
+            b.end_date,
+            b.pickup_time,
+            b.return_time,
+            b.booking_type,
+            b.status AS booking_status
+        FROM booking_payments bp
+        INNER JOIN bookings b ON bp.booking_id = b.id
+        WHERE b.car_id IN ($in)
+          AND bp.operator_share > 0
+        ORDER BY bp.created_at DESC, bp.booking_id DESC
+    ");
+    while ($row = mysqli_fetch_assoc($bookRes)) {
+        $bookings_by_car[(int)$row['car_id']][] = $row;
+    }
+}
+
+// ── Stats ──
+$total_owed = 0;
+$total_paid = 0;
+foreach ($cars as $c) {
+    $total_owed += $c['total_owed'];
+    $total_paid += $c['total_paid'];
+}
+$total_balance = $total_owed - $total_paid;
+
+// ── Branch label for header ──
+$branch_label = 'All Branches';
+if ($branch_filter_active) {
+    $bStmt = $conn->prepare("SELECT name FROM branches WHERE id = ? LIMIT 1");
+    $bStmt->bind_param('i', $branch_filter_id);
+    $bStmt->execute();
+    $bRow = $bStmt->get_result()->fetch_assoc();
+    $bStmt->close();
+    if ($bRow) $branch_label = $bRow['name'];
+}
 ?>
 
 <?php require_once __DIR__ . '/../components/head.php'; ?>
@@ -75,365 +225,636 @@ $months = [1=>"JAN", 2=>"FEB", 3=>"MAR", 4=>"APR", 5=>"MAY", 6=>"JUN", 7=>"JUL",
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-    /* ========================================================
-       BASE LAYOUT & COMPONENT OVERRIDES
-       ======================================================== */
-    body, 
-    button, 
-    input, 
-    select, 
-    textarea, 
-    .form-control, 
-    .form-select,
-    .btn, 
-    .table,
-    .modal-content { 
-        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; 
+    body, button, input, select, textarea, .form-control, .form-select, .btn, .table {
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     }
 
-    .main-content { 
+    .main-content {
         background-color: var(--brand-bg, #f8fafc);
-        min-height: 100vh; 
+        min-height: 100vh;
         transition: background-color 0.25s ease, color 0.25s ease;
     }
 
-    .mgt-badge { 
-        background: #e0f2fe; 
-        color: #0369a1; 
-        border-radius: 6px; 
-        padding: 4px 10px; 
-        font-weight: 700; 
-        display: inline-block;
+    /* ── Stat cards ── */
+    .stat-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 1.25rem;
+        padding: 1.15rem 1.25rem;
+        height: 100%;
+        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .stat-card:hover {
+        transform: translateY(-3px);
+        border-color: #ffd700 !important;
+        box-shadow: 0 0 0 1px #ffd700, 0 8px 24px -8px rgba(255, 215, 0, 0.55) !important;
+    }
+    .stat-label {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #475569;
+        font-weight: 700;
+        margin-bottom: 4px;
+    }
+    .stat-value {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.15;
+    }
+    .stat-sub {
+        font-size: 0.72rem;
+        color: #475569;
+        font-weight: 500;
+        margin-top: 2px;
     }
 
-    .car-header { 
-        background: #ffffff; 
-        border-bottom: 1px solid #edf2f7; 
-        transition: background-color 0.25s ease, border-color 0.25s ease;
+    /* ── Filter bar ── */
+    .filter-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 1rem;
+        padding: 1rem 1.15rem;
+    }
+    .filter-label {
+        font-size: 0.65rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #475569;
+        margin-bottom: 4px;
+    }
+    .filter-card .form-select,
+    .filter-card .form-control {
+        border-radius: 10px;
+        border: 1px solid #cbd5e1;
+        font-size: 0.85rem;
+        color: #0f172a;
+    }
+    .filter-card .form-select:focus,
+    .filter-card .form-control:focus {
+        border-color: #ffd700;
+        box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.22);
+        outline: none;
     }
 
-    .income-row:hover { 
-        background-color: #f8fafc; 
+    .search-wrap { position: relative; width: 100%; }
+    .search-wrap i {
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #94a3b8;
+        pointer-events: none;
+        font-size: 0.9rem;
+    }
+    .search-wrap input {
+        padding-left: 2.4rem;
+        height: 40px;
     }
 
-    /* Standard Primary Button Accent (Yellow Variant) */
-    .btn-warning-action, .btn-primary, .btn-submit-action {
-        background-color: #ffcc00 !important;
-        border-color: #ffcc00 !important;
-        color: #000000 !important;
-        font-weight: 700 !important;
+    /* ── Car remittance card ── */
+    .car-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 1.25rem;
+        overflow: hidden;
+        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     }
-    .btn-warning-action:hover, .btn-primary:hover, .btn-submit-action:hover {
-        background-color: #e6b800 !important;
-        border-color: #e6b800 !important;
-        color: #000000 !important;
+    .car-card:hover {
+        transform: translateY(-2px);
+        border-color: #ffd700 !important;
+        box-shadow: 0 0 0 1px #ffd700, 0 6px 18px -6px rgba(255, 215, 0, 0.5) !important;
     }
-
-    /* Offcanvas Sidebar Architecture Responsive Adjustments */
-    @media (max-width: 991.98px) {
-        .stat-card { width: 100% !important; margin-bottom: 1rem; }
-        .table-responsive { font-size: 0.85rem; }
-        .hide-mobile { display: none !important; }
-
-        .mobile-sidebar-container {
-            position: fixed;
-            top: 0;
-            left: -280px !important;
-            width: 280px;
-            height: 100vh;
-            z-index: 1060;
-            transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.15);
-            background: #fff;
-            overflow-y: auto !important;
-            display: block !important;
-        }
-
-        .mobile-sidebar-container.show {
-            left: 0 !important;
-        }
-
-        .sidebar-backdrop {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: rgba(15, 23, 42, 0.5);
-            z-index: 1050;
-            display: none;
-            opacity: 0;
-            transition: opacity 0.25s linear;
-        }
-        
-        .sidebar-backdrop.show {
-            display: block;
-            opacity: 1;
-        }
+    .car-card .card-head {
+        padding: 1rem 1.25rem;
+        background: #ffffff;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .car-card .car-title {
+        font-size: 1rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0;
+    }
+    .car-card .car-meta {
+        font-size: 0.75rem;
+        color: #475569;
+        margin-top: 2px;
     }
 
-    /* ========================================================
-       DARK MODE COMPLETE OVERRIDES & CONTRAST FIXES
-       ======================================================== */
+    /* ── Status badges ── */
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 12px;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .status-badge::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+    }
+    .status-unpaid       { background: #fee2e2; color: #b91c1c; }
+    .status-partial      { background: #fef3c7; color: #92400e; }
+    .status-paid         { background: #dcfce7; color: #15803d; }
+    .status-no-activity  { background: #f1f5f9; color: #64748b; }
+
+    /* ── Money rows ── */
+    .money-grid {
+        padding: 1rem 1.25rem;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 0.75rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    @media (max-width: 575.98px) {
+        .money-grid { grid-template-columns: 1fr; gap: 0.5rem; }
+    }
+    .money-box {
+        text-align: center;
+        padding: 0.65rem 0.5rem;
+        border-radius: 0.75rem;
+        background: #f8fafc;
+    }
+    .money-box .lbl {
+        font-size: 0.6rem;
+        text-transform: uppercase;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        color: #475569;
+        margin-bottom: 3px;
+    }
+    .money-box .val {
+        font-size: 1rem;
+        font-weight: 800;
+        color: #0f172a;
+    }
+    .money-box.owed    .val { color: #0f172a; }
+    .money-box.paid    .val { color: #15803d; }
+    .money-box.balance .val { color: #b91c1c; }
+    .money-box.balance.is-clear .val { color: #15803d; }
+
+    /* ── Actions ── */
+    .car-card .actions {
+        padding: 0.85rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        background: #fffbe6;
+    }
+    .btn-record {
+        background-color: #ffd700;
+        border: 1px solid #ffd700;
+        color: #000000;
+        font-weight: 700;
+        padding: 0.5rem 1rem;
+        border-radius: 0.65rem;
+        transition: all 0.2s ease;
+    }
+    .btn-record:hover {
+        background-color: #e6c200;
+        border-color: #e6c200;
+        color: #000000;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
+    }
+    .btn-record:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        transform: none;
+    }
+    .btn-history {
+        background: transparent;
+        border: 1px solid #cbd5e1;
+        color: #334155;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        border-radius: 0.65rem;
+        font-size: 0.8rem;
+        transition: all 0.2s ease;
+    }
+    .btn-history:hover {
+        background: #f1f5f9;
+        color: #0f172a;
+    }
+
+    /* ── History / bookings list (inside modals) ── */
+    .history-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.65rem 0;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.85rem;
+    }
+    .history-item:last-child { border-bottom: none; }
+    .history-item .amount {
+        font-weight: 800;
+        color: #15803d;
+        white-space: nowrap;
+    }
+    .history-item .meta {
+        color: #64748b;
+        font-size: 0.72rem;
+        margin-top: 2px;
+    }
+    .booking-link {
+        color: #b38a00;
+        font-weight: 800;
+        text-decoration: none;
+    }
+    .booking-link:hover {
+        text-decoration: underline;
+        color: #8a6a00;
+    }
+
+    /* Proof thumbnails */
+    .proof-thumbs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+    }
+    .proof-thumb {
+        width: 52px;
+        height: 52px;
+        border-radius: 6px;
+        overflow: hidden;
+        border: 1px solid #cbd5e1;
+        cursor: pointer;
+        background: #f1f5f9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+    }
+    .proof-thumb:hover {
+        border-color: #ffd700;
+        box-shadow: 0 0 0 1px #ffd700;
+        transform: translateY(-1px);
+    }
+    .proof-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+    .proof-thumb .pdf-icon {
+        color: #dc2626;
+        font-size: 1.4rem;
+    }
+
+    /* Proofs viewer modal — image */
+    .proof-viewer-img {
+        max-width: 100%;
+        max-height: 75vh;
+        border-radius: 8px;
+        display: block;
+        margin: 0 auto;
+        background: #000;
+    }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 60px 20px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 1.25rem; }
+    .empty-state i { font-size: 64px; color: #94a3b8; margin-bottom: 20px; display: block; }
+    .empty-state h5 { color: #334155; margin-bottom: 10px; font-weight: 800; }
+    .empty-state p { color: #64748b; }
+
+    .modal-section-title {
+        font-size: 0.65rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #475569;
+        margin-bottom: 8px;
+    }
+
+    /* ============================================================
+       DARK MODE
+       ============================================================ */
     body.dark-mode,
     body.dark-mode .main-content {
         background-color: #0a0a0a !important;
         color: #f1f5f9 !important;
     }
+    body.dark-mode .stat-card,
+    body.dark-mode .filter-card,
+    body.dark-mode .car-card,
+    body.dark-mode .empty-state {
+        background-color: #141414 !important;
+        border-color: #27272a !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+    }
+    body.dark-mode .stat-card:hover,
+    body.dark-mode .car-card:hover {
+        border-color: #ffd700 !important;
+        box-shadow: 0 0 0 1px #ffd700, 0 0 22px rgba(255, 215, 0, 0.4) !important;
+    }
+    body.dark-mode .stat-value,
+    body.dark-mode .car-card .car-title,
+    body.dark-mode .money-box .val { color: #ffffff !important; }
+    body.dark-mode .stat-label,
+    body.dark-mode .stat-sub,
+    body.dark-mode .car-card .car-meta,
+    body.dark-mode .money-box .lbl { color: #cbd5e1 !important; }
+    body.dark-mode .money-box { background: #1f1f23 !important; }
+    body.dark-mode .car-card .card-head { background: #141414 !important; border-color: #27272a !important; }
+    body.dark-mode .car-card .actions { background: #1a1600 !important; }
+    body.dark-mode .history-item { border-color: #27272a !important; }
+    body.dark-mode .history-item .meta { color: #94a3b8 !important; }
+    body.dark-mode .booking-link { color: #ffd700; }
+    body.dark-mode .booking-link:hover { color: #ffe866; }
+    body.dark-mode .btn-history {
+        border-color: #3f3f46 !important;
+        color: #e2e8f0 !important;
+    }
+    body.dark-mode .btn-history:hover {
+        background: #27272a !important;
+        color: #ffffff !important;
+    }
+    body.dark-mode .filter-card .form-select,
+    body.dark-mode .filter-card .form-control {
+        background-color: #0d0d0d !important;
+        border-color: #27272a !important;
+        color: #ffffff !important;
+    }
+    body.dark-mode .filter-card .form-select:focus,
+    body.dark-mode .filter-card .form-control:focus {
+        border-color: #ffd700 !important;
+        box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.22) !important;
+    }
+    body.dark-mode .search-wrap input::placeholder { color: #64748b !important; }
+    body.dark-mode .search-wrap i { color: #64748b; }
+    body.dark-mode .status-no-activity { background: #1f1f23 !important; color: #94a3b8 !important; }
 
-    /* Header & Footer Components */
-    body.dark-mode header,
-    body.dark-mode navbar,
-    body.dark-mode .navbar,
-    body.dark-mode footer,
-    body.dark-mode .footer {
+    body.dark-mode .empty-state i { color: #71717a !important; }
+    body.dark-mode .empty-state h5 { color: #e2e8f0 !important; }
+    body.dark-mode .empty-state p { color: #cbd5e1 !important; }
+
+    body.dark-mode h3 { color: #ffffff !important; }
+    body.dark-mode .text-muted { color: #cbd5e1 !important; }
+
+    body.dark-mode .proof-thumb {
+        background: #1f1f23 !important;
+        border-color: #3f3f46 !important;
+    }
+    body.dark-mode .proof-thumb:hover {
+        border-color: #ffd700 !important;
+    }
+
+    /* ── Modal dark ── */
+    body.dark-mode .modal-content {
         background-color: #141414 !important;
         border-color: #27272a !important;
         color: #f1f5f9 !important;
     }
-
-    body.dark-mode footer p,
-    body.dark-mode header span,
-    body.dark-mode header p {
-        color: #a1a1aa !important;
-    }
-
-    /* Mobile Sidebar Dark Overrides */
-    body.dark-mode .mobile-sidebar-container {
-        background-color: #141414 !important;
-        border-right: 1px solid #27272a !important;
-    }
-
-    /* Typography & High-Contrast Overrides */
-    body.dark-mode .text-dark,
-    body.dark-mode h3,
-    body.dark-mode h4,
-    body.dark-mode h5,
-    body.dark-mode h6,
-    body.dark-mode label {
+    body.dark-mode .modal-header,
+    body.dark-mode .modal-footer { border-color: #27272a !important; }
+    body.dark-mode .modal-body .form-label,
+    body.dark-mode .modal-body .filter-label { color: #cbd5e1 !important; }
+    body.dark-mode .modal-body .form-control {
+        background-color: #0d0d0d !important;
+        border-color: #27272a !important;
         color: #ffffff !important;
     }
-
-    /* Muted and secondary text contrast fixes */
-    body.dark-mode .text-muted,
-    body.dark-mode .text-secondary,
-    body.dark-mode span:not(.badge):not(.mgt-badge):not(.text-success):not(.text-primary):not(.text-warning) {
-        color: #cbd5e1 !important;
-    }
-
-    body.dark-mode .text-primary {
-        color: #38bdf8 !important;
-    }
-
-    /* Badge & Component Dark Fixes */
-    body.dark-mode .mgt-badge {
-        background-color: #0c4a6e !important;
-        color: #38bdf8 !important;
-    }
-
-    body.dark-mode .car-header {
-        background-color: #141414 !important;
-        border-bottom-color: #27272a !important;
-    }
-
-    body.dark-mode .badge.bg-light {
+    body.dark-mode .modal-body .form-control::placeholder { color: #64748b !important; }
+    body.dark-mode .modal-body #recordBalance { color: #ffffff !important; }
+    body.dark-mode .modal-body #recordCarLabel,
+    body.dark-mode .modal-body #recordOperator { color: #94a3b8 !important; }
+    body.dark-mode .modal-body .history-item { border-color: #27272a !important; }
+    body.dark-mode .modal-body .history-item .meta { color: #94a3b8 !important; }
+    body.dark-mode .modal-body .modal-section-title { color: #cbd5e1 !important; }
+    body.dark-mode input[type="file"].form-control::file-selector-button {
         background-color: #27272a !important;
         color: #f1f5f9 !important;
         border-color: #3f3f46 !important;
     }
 
-    /* Cards & Containers in Dark Mode */
-    body.dark-mode .card,
-    body.dark-mode .card-body,
-    body.dark-mode .card-header {
-        background-color: #141414 !important;
-        border-color: #27272a !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
-    }
-
-    /* Form Controls & Dropdowns in Dark Mode */
-    body.dark-mode .form-select,
-    body.dark-mode .form-control {
-        background-color: #1a1f26 !important;
-        border: 1px solid #3b4252 !important;
-        color: #ffffff !important;
-    }
-
-    body.dark-mode .form-select:focus,
-    body.dark-mode .form-control:focus {
-        background-color: #1a1f26 !important;
-        border-color: #ffcc00 !important;
-        color: #ffffff !important;
-        box-shadow: 0 0 0 0.25rem rgba(255, 204, 0, 0.2) !important;
-    }
-
-    body.dark-mode .form-select option {
-        background-color: #141414 !important;
-        color: #ffffff !important;
-    }
-
-    /* Tables in Dark Mode */
-    body.dark-mode .table,
-    body.dark-mode .table tr,
-    body.dark-mode .table td,
-    body.dark-mode .table th {
-        background-color: #141414 !important;
-        color: #f1f5f9 !important;
-        border-color: #27272a !important;
-    }
-
-    body.dark-mode .table thead tr,
-    body.dark-mode .table thead th,
-    body.dark-mode .bg-light-subtle {
-        background-color: #1f1f23 !important;
-        color: #94a3b8 !important;
-    }
-
-    body.dark-mode .income-row:hover {
-        background-color: #1a1a1e !important;
-    }
-
-    body.dark-mode .table tfoot,
-    body.dark-mode .table tfoot td,
-    body.dark-mode .table tfoot tr,
-    body.dark-mode .bg-light {
-        background-color: #18181b !important;
-        color: #ffffff !important;
-    }
-
-    /* Reset / Secondary Buttons in Dark Mode */
-    body.dark-mode .btn-secondary {
-        background-color: #27272a !important;
-        border-color: #3f3f46 !important;
-        color: #f1f5f9 !important;
-    }
-
-    body.dark-mode .btn-secondary:hover {
-        background-color: #3f3f46 !important;
-        color: #ffffff !important;
-    }
+    body.dark-mode .modal-body .text-muted { color: #cbd5e1 !important; }
 </style>
-
-<div id="sidebarBackdrop" class="sidebar-backdrop"></div>
 
 <div class="container-fluid">
     <div class="row">
-        <div class="col-lg-2 p-0 d-none d-lg-block mobile-sidebar-container" id="sidebarWrapper">
+        <div class="col-12 col-md-auto p-0">
             <?php require_once __DIR__ . '/../components/sidebar.php'; ?>
         </div>
 
-        <div class="col-12 col-lg-10 p-0 d-flex flex-column main-content">
+        <div class="col p-0 d-flex flex-column main-content">
             <?php require_once __DIR__ . '/../components/header.php'; ?>
 
             <div class="p-3 p-md-4">
-                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+
+                <!-- Header -->
+                <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-4">
                     <div>
-                        <h3 class="fw-bold mb-0 text-dark">Operator Revenue</h3>
-                        <p class="text-muted mb-0 small">Analysis of management fees and operator payouts.</p>
-                    </div>
-
-                    <div class="bg-primary text-white px-4 py-3 rounded-4 shadow-sm stat-card">
-                        <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.65rem; opacity: 0.85; letter-spacing: 1px;">Total MGT Income</small>
-                        <h3 class="fw-bold mb-0">₱<?= number_format($grand_total_mgt, 2) ?></h3>
+                        <h3 class="fw-bold mb-0">Operator <span style="color: #b38a00;">Remittances</span></h3>
+                        <p class="text-muted small mb-0">
+                            <?= htmlspecialchars($branch_label) ?> &middot; Track what the company owes operators and record payments.
+                        </p>
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm mb-4 rounded-4">
-                    <div class="card-body p-3 p-md-4">
-                        <form method="GET" class="row g-3">
-                            <div class="col-12 col-md-5">
-                                <label class="form-label small fw-bold text-muted">Operator Account</label>
-                                <select name="owner_id" class="form-select border rounded-3" onchange="this.form.submit()">
-                                    <option value="all">-- All Operators --</option>
-                                    <?php 
-                                    $owners_res->data_seek(0);
-                                    while($o = $owners_res->fetch_assoc()): ?>
-                                        <option value="<?= $o['id'] ?>" <?= $selected_owner == $o['id'] ? 'selected' : '' ?>><?= htmlspecialchars($o['name']) ?></option>
-                                    <?php endwhile; ?>
-                                </select>
+                <!-- Stats row -->
+                <div class="row g-3 mb-4">
+                    <div class="col-12 col-md-4">
+                        <div class="stat-card">
+                            <div class="stat-label">Total Owed</div>
+                            <div class="stat-value">₱<?= number_format($total_owed, 2) ?></div>
+                            <div class="stat-sub">Sum of all operator shares</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-4">
+                        <div class="stat-card">
+                            <div class="stat-label">Total Paid</div>
+                            <div class="stat-value" style="color:#15803d;">₱<?= number_format($total_paid, 2) ?></div>
+                            <div class="stat-sub">All recorded remittances</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-4">
+                        <div class="stat-card">
+                            <div class="stat-label">Outstanding Balance</div>
+                            <div class="stat-value" style="color: <?= $total_balance > 0 ? '#b91c1c' : '#15803d' ?>;">
+                                ₱<?= number_format($total_balance, 2) ?>
                             </div>
-                            <div class="col-12 col-md-5">
-                                <label class="form-label small fw-bold text-muted">Vehicle</label>
-                                <select name="car_id" class="form-select border rounded-3" onchange="this.form.submit()">
-                                    <option value="all">-- All Vehicles --</option>
-                                    <?php 
-                                    $cars_dropdown_res->data_seek(0);
-                                    while($c = $cars_dropdown_res->fetch_assoc()): ?>
-                                        <option value="<?= $c['id'] ?>" <?= $selected_car == $c['id'] ? 'selected' : '' ?>><?= $c['brand'] ?> <?= $c['model'] ?> (<?= $c['plate_number'] ?>)</option>
-                                    <?php endwhile; ?>
-                                </select>
-                            </div>
-                            <div class="col-12 col-md-2 d-flex align-items-end">
-                                <a href="operator_revenue.php" class="btn btn-secondary w-100 rounded-3">Reset</a>
-                            </div>
-                        </form>
+                            <div class="stat-sub">Owed minus paid</div>
+                        </div>
                     </div>
                 </div>
 
-                <?php if (empty($car_data)): ?>
-                    <div class="card border-0 shadow-sm p-5 text-center rounded-4">
-                        <i class="bi bi-wallet2 display-1 text-muted mb-3"></i>
-                        <h5 class="text-muted">No completed bookings found.</h5>
-                    </div>
-                <?php else: ?>
-                    <?php foreach ($car_data as $car_name => $details): ?>
-                        <div class="card border-0 shadow-sm mb-4 rounded-4 overflow-hidden">
-                            <div class="car-header p-3 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
-                                <div>
-                                    <h6 class="mb-0 fw-bold text-dark"><?= htmlspecialchars($car_name) ?></h6>
-                                    <small class="text-muted">Owned by: <span class="text-primary fw-semibold"><?= htmlspecialchars($details['owner']) ?></span></small>
-                                </div>
-                                <div>
-                                    <span class="badge bg-light text-dark border rounded-pill px-3 py-2">Year <?= $current_year ?></span>
-                                </div>
-                            </div>
-                            
-                            <div class="table-responsive">
-                                <table class="table mb-0 align-middle">
-                                    <thead class="bg-light-subtle small text-uppercase">
-                                        <tr class="text-muted" style="font-size: 0.65rem; letter-spacing: 0.5px;">
-                                            <th class="ps-4">Month</th>
-                                            <th class="text-center">MGT Income</th>
-                                            <th class="text-center hide-mobile">Operator Share</th>
-                                            <th class="text-end pe-4">Gross Revenue</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php 
-                                        $year_mgt = 0; $year_gross = 0;
-                                        foreach ($months as $num => $name): 
-                                            $m = $details['months'][$num] ?? null;
-                                            if($m):
-                                                $year_mgt += $m['mgt_income'];
-                                                $year_gross += $m['gross'];
-                                        ?>
-                                        <tr class="income-row">
-                                            <td class="ps-4 fw-bold text-secondary"><?= $name ?></td>
-                                            <td class="text-center">
-                                                <span class="mgt-badge">₱<?= number_format($m['mgt_income'], 2) ?></span>
-                                            </td>
-                                            <td class="text-center text-muted hide-mobile">
-                                                ₱<?= number_format($m['owner_share'], 2) ?>
-                                            </td>
-                                            <td class="text-end pe-4 fw-bold text-dark">
-                                                ₱<?= number_format($m['gross'], 2) ?>
-                                            </td>
-                                        </tr>
-                                        <?php endif; endforeach; ?>
-                                    </tbody>
-                                    <tfoot class="bg-light">
-                                        <tr class="fw-bold">
-                                            <td class="ps-4">TOTAL</td>
-                                            <td class="text-center text-primary">₱<?= number_format($year_mgt, 2) ?></td>
-                                            <td class="text-center hide-mobile">--</td>
-                                            <td class="text-end pe-4">₱<?= number_format($year_gross, 2) ?></td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
+                <!-- Filters -->
+                <form method="GET" class="filter-card mb-4" id="filterForm">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-12 col-sm-6 col-md-3">
+                            <div class="filter-label">Operator</div>
+                            <select name="operator_id" class="form-select" onchange="this.form.submit()">
+                                <option value="all" <?= $filter_operator === 'all' ? 'selected' : '' ?>>All Operators</option>
+                                <?php foreach ($operators as $op): ?>
+                                    <option value="<?= $op['id'] ?>" <?= (string)$filter_operator === (string)$op['id'] ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($op['name']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-6 col-md-3">
+                            <div class="filter-label">Status</div>
+                            <select name="status" class="form-select" onchange="this.form.submit()">
+                                <option value="all"          <?= $filter_status === 'all'         ? 'selected' : '' ?>>All Status</option>
+                                <option value="unpaid"       <?= $filter_status === 'unpaid'      ? 'selected' : '' ?>>Unpaid</option>
+                                <option value="partial"      <?= $filter_status === 'partial'     ? 'selected' : '' ?>>Partial</option>
+                                <option value="paid"         <?= $filter_status === 'paid'        ? 'selected' : '' ?>>Paid</option>
+                                <option value="no-activity"  <?= $filter_status === 'no-activity' ? 'selected' : '' ?>>No Activity</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-8 col-md-4">
+                            <div class="filter-label">Search</div>
+                            <div class="search-wrap">
+                                <i class="bi bi-search"></i>
+                                <input type="text" id="carSearch" class="form-control" placeholder="Search car, plate, or operator...">
                             </div>
                         </div>
-                    <?php endforeach; ?>
+                        <div class="col-12 col-sm-4 col-md-2">
+                            <a href="operator_revenue.php" class="btn btn-outline-secondary w-100" style="border-radius:10px; height:40px; display:inline-flex; align-items:center; justify-content:center;">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                            </a>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Car remittance cards -->
+                <?php if (empty($cars)): ?>
+                    <div class="empty-state">
+                        <i class="bi bi-wallet2"></i>
+                        <h5>No operator cars found</h5>
+                        <p class="mb-0 small">Either no operator cars exist, or the filters you set returned nothing.</p>
+                    </div>
+                <?php else: ?>
+                    <div class="row g-3" id="carGrid">
+                        <?php foreach ($cars as $c):
+                            $statusClassMap = [
+                                'unpaid'      => 'status-unpaid',
+                                'partial'     => 'status-partial',
+                                'paid'        => 'status-paid',
+                                'no-activity' => 'status-no-activity',
+                            ];
+                            $statusLabelMap = [
+                                'unpaid'      => 'Unpaid',
+                                'partial'     => 'Partial',
+                                'paid'        => 'Paid',
+                                'no-activity' => 'No Activity',
+                            ];
+                            $sc = $statusClassMap[$c['status']];
+                            $sl = $statusLabelMap[$c['status']];
+                            $carRemits   = $remittances_by_car[$c['car_id']] ?? [];
+                            $carBookings = $bookings_by_car[$c['car_id']]   ?? [];
+                            $isClear = ($c['balance'] <= 0 && $c['total_owed'] > 0);
+
+                            $searchKey = strtolower($c['brand'] . ' ' . $c['model'] . ' ' . $c['plate_number'] . ' ' . $c['operator_name']);
+
+                            $bookingsJson = htmlspecialchars(json_encode($carBookings), ENT_QUOTES, 'UTF-8');
+                            $remitsJson   = htmlspecialchars(json_encode($carRemits),   ENT_QUOTES, 'UTF-8');
+                        ?>
+                            <div class="col-12 col-xl-6 car-col" data-search="<?= htmlspecialchars($searchKey, ENT_QUOTES) ?>">
+                                <div class="car-card h-100 d-flex flex-column">
+
+                                    <div class="card-head d-flex justify-content-between align-items-start gap-2">
+                                        <div class="min-w-0">
+                                            <div class="car-title text-truncate">
+                                                <?= htmlspecialchars($c['brand'] . ' ' . $c['model']) ?>
+                                                <span class="text-muted small">· <?= htmlspecialchars($c['plate_number']) ?></span>
+                                            </div>
+                                            <div class="car-meta">
+                                                Owned by <strong><?= htmlspecialchars($c['operator_name']) ?></strong>
+                                                <?php if (!empty($c['branch_name'])): ?>
+                                                    · <?= htmlspecialchars($c['branch_name']) ?>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        <span class="status-badge <?= $sc ?>"><?= $sl ?></span>
+                                    </div>
+
+                                    <div class="money-grid">
+                                        <div class="money-box owed">
+                                            <div class="lbl">Owed</div>
+                                            <div class="val">₱<?= number_format($c['total_owed'], 2) ?></div>
+                                        </div>
+                                        <div class="money-box paid">
+                                            <div class="lbl">Paid</div>
+                                            <div class="val">₱<?= number_format($c['total_paid'], 2) ?></div>
+                                        </div>
+                                        <div class="money-box balance <?= $isClear ? 'is-clear' : '' ?>">
+                                            <div class="lbl">Balance</div>
+                                            <div class="val">₱<?= number_format($c['balance'], 2) ?></div>
+                                        </div>
+                                    </div>
+
+                                    <div class="actions mt-auto">
+                                        <button class="btn-record"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#recordModal"
+                                                data-car-id="<?= (int)$c['car_id'] ?>"
+                                                data-car-label="<?= htmlspecialchars($c['brand'] . ' ' . $c['model'] . ' [' . $c['plate_number'] . ']', ENT_QUOTES) ?>"
+                                                data-balance="<?= number_format($c['balance'], 2, '.', '') ?>"
+                                                data-operator="<?= htmlspecialchars($c['operator_name'], ENT_QUOTES) ?>"
+                                                <?= $c['balance'] <= 0 ? 'disabled' : '' ?>>
+                                            <i class="bi bi-cash-coin me-1"></i>
+                                            Record Payment
+                                        </button>
+
+                                        <div class="d-flex gap-2 flex-wrap">
+                                            <?php if (!empty($carBookings)): ?>
+                                                <button class="btn-history"
+                                                        type="button"
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#bookingsModal"
+                                                        data-car-label="<?= htmlspecialchars($c['brand'] . ' ' . $c['model'] . ' [' . $c['plate_number'] . ']', ENT_QUOTES) ?>"
+                                                        data-bookings='<?= $bookingsJson ?>'>
+                                                    <i class="bi bi-journal-text me-1"></i>
+                                                    View Bookings (<?= count($carBookings) ?>)
+                                                </button>
+                                            <?php endif; ?>
+
+                                            <?php if (!empty($carRemits)): ?>
+                                                <button class="btn-history"
+                                                        type="button"
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#historyModal"
+                                                        data-car-label="<?= htmlspecialchars($c['brand'] . ' ' . $c['model'] . ' [' . $c['plate_number'] . ']', ENT_QUOTES) ?>"
+                                                        data-remits='<?= $remitsJson ?>'>
+                                                    <i class="bi bi-clock-history me-1"></i>
+                                                    Payment History (<?= count($carRemits) ?>)
+                                                </button>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+
+                        <div class="col-12 d-none" id="noSearchResults">
+                            <div class="empty-state">
+                                <i class="bi bi-search"></i>
+                                <h5>No cars match your search</h5>
+                                <p class="mb-0 small">Try a different car name, plate, or operator.</p>
+                            </div>
+                        </div>
+                    </div>
                 <?php endif; ?>
+
             </div>
 
             <div class="mt-auto">
@@ -443,44 +864,494 @@ $months = [1=>"JAN", 2=>"FEB", 3=>"MAR", 4=>"APR", 5=>"MAY", 6=>"JUN", 7=>"JUL",
     </div>
 </div>
 
+<!-- RECORD PAYMENT MODAL -->
+<div class="modal fade" id="recordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form action="process/record_remittance.php"
+              method="POST"
+              enctype="multipart/form-data"
+              class="modal-content border-0 shadow-lg rounded-4">
+            <input type="hidden" name="car_id" id="recordCarId">
+
+            <div class="modal-header border-0 pb-2">
+                <div>
+                    <h5 class="fw-bold mb-0">Record Remittance</h5>
+                    <small class="text-muted" id="recordCarLabel">—</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <div class="modal-body pt-2">
+                <div class="mb-3">
+                    <label class="filter-label">Current Balance</label>
+                    <div class="fw-bold" style="font-size:1.15rem;" id="recordBalance">₱0.00</div>
+                    <small class="text-muted" id="recordOperator">—</small>
+                </div>
+
+                <div class="mb-3">
+                    <label class="filter-label" for="recordAmount">Amount to Pay (₱)</label>
+                    <input type="number"
+                           name="amount"
+                           id="recordAmount"
+                           class="form-control"
+                           step="0.01"
+                           min="0.01"
+                           required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="filter-label" for="recordDate">Payment Date</label>
+                    <input type="date"
+                           name="payment_date"
+                           id="recordDate"
+                           class="form-control"
+                           value="<?= date('Y-m-d') ?>"
+                           required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="filter-label" for="recordProofs">
+                        Proof of Payment <span class="text-muted fw-normal text-lowercase">(optional, up to 5 files)</span>
+                    </label>
+                    <input type="file"
+                           name="proofs[]"
+                           id="recordProofs"
+                           class="form-control"
+                           accept="image/*,.pdf"
+                           multiple>
+                    <small class="text-muted d-block mt-1" style="font-size:0.72rem;">
+                        JPG, PNG, or PDF — max 5MB each. e.g. GCash screenshot, receipt.
+                    </small>
+                </div>
+
+                <div class="mb-1">
+                    <label class="filter-label" for="recordNotes">Notes (optional)</label>
+                    <textarea name="notes"
+                              id="recordNotes"
+                              class="form-control"
+                              rows="2"
+                              placeholder="e.g. GCash reference #, cash handed over..."></textarea>
+                </div>
+            </div>
+
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn-record">
+                    <i class="bi bi-check-circle me-1"></i>Save Payment
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- VIEW BOOKINGS MODAL -->
+<div class="modal fade" id="bookingsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-2">
+                <div>
+                    <h5 class="fw-bold mb-0">Contributing Bookings</h5>
+                    <small class="text-muted" id="bookingsModalCarLabel">—</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-2" id="bookingsModalBody">
+                <!-- Populated by JS -->
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PAYMENT HISTORY MODAL -->
+<div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-2">
+                <div>
+                    <h5 class="fw-bold mb-0">Payment History</h5>
+                    <small class="text-muted" id="historyModalCarLabel">—</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-2" id="historyModalBody">
+                <!-- Populated by JS -->
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PROOF VIEWER MODAL -->
+<div class="modal fade" id="proofModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-2">
+                <div>
+                    <h5 class="fw-bold mb-0">Proof of Payment</h5>
+                    <small class="text-muted" id="proofModalLabel">—</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-2 text-center" id="proofModalBody">
+                <!-- Populated by JS -->
+            </div>
+            <div class="modal-footer border-0 pt-0 justify-content-between">
+                <a href="#" id="proofOpenNewTab" target="_blank" class="btn btn-outline-secondary" style="display:none;">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Open in new tab
+                </a>
+                <button type="button" class="btn btn-outline-secondary ms-auto" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- DELETE REMITTANCE CONFIRMATION MODAL -->
+<div class="modal fade" id="deleteRemitModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form action="process/delete_remittance.php" method="POST" class="modal-content border-0 shadow-lg rounded-4">
+            <input type="hidden" name="remittance_id" id="deleteRemitId">
+
+            <div class="modal-header border-0 pb-2">
+                <h5 class="fw-bold mb-0 text-danger">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Delete Remittance?
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <div class="modal-body pt-2">
+                <p class="mb-2">
+                    You are about to permanently delete this payment record:
+                </p>
+                <div class="p-3 rounded-3 mb-3" style="background:#fee2e2;">
+                    <div class="fw-bold" style="color:#991b1b; font-size:1.15rem;" id="deleteRemitAmount">₱0.00</div>
+                    <div style="color:#7f1d1d; font-size:0.8rem;">Paid on <span id="deleteRemitDate">—</span></div>
+                </div>
+                <p class="text-muted small mb-0">
+                    <strong>This cannot be undone.</strong> All attached proof files will also be deleted from the server.
+                    The car's balance will increase back by this amount.
+                </p>
+            </div>
+
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-danger">
+                    <i class="bi bi-trash me-1"></i>Delete Remittance
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
-// Mobile Sidebar Canvas Engine Tracker Controls Blueprint
-document.addEventListener("DOMContentLoaded", function () {
-    // Intercept header template elements to pull the yellow button handler link node references
-    const dynamicHeaderArea = document.querySelector('.main-content header, .main-content nav, .container-fluid');
-    let toggleBtn = null;
-    
-    if (dynamicHeaderArea) {
-        const componentButtons = dynamicHeaderArea.getElementsByTagName('button');
-        for (let btn of componentButtons) {
-            if (btn.querySelector('.bi-list') || btn.innerHTML.includes('<span') || btn.className.includes('navbar-toggler')) {
-                toggleBtn = btn;
-                break;
-            }
-        }
+document.addEventListener('DOMContentLoaded', function () {
+
+    const PROOF_BASE = '../../public/assets/images/remittances/';
+
+    // ── Formatters ──
+    function peso(v) {
+        const n = parseFloat(v) || 0;
+        return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
-    
-    // Fallback handler engine assignment path
-    if (!toggleBtn) {
-        toggleBtn = document.querySelector('header button, .navbar-toggler, .bg-warning button');
+    function shortDate(s) {
+        if (!s) return '';
+        const d = new Date(s.replace(' ', 'T'));
+        if (isNaN(d)) return s;
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    function escapeHtml(s) {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
-    const sidebar = document.getElementById("sidebarWrapper");
-    const backdrop = document.getElementById("sidebarBackdrop");
+    // ── Delete remittance (modal confirmation + form submit) ──
+    const deleteModalEl = document.getElementById('deleteRemitModal');
+    let deleteModal = null;
+    if (deleteModalEl && typeof bootstrap !== 'undefined') {
+        deleteModal = new bootstrap.Modal(deleteModalEl);
+    }
 
-    if (toggleBtn && sidebar && backdrop) {
-        function toggleSidebar() {
-            sidebar.classList.toggle("show");
-            backdrop.classList.toggle("show");
-        }
+    document.addEventListener('click', function (e) {
+        const btn = e.target.closest('.remit-delete-btn');
+        if (!btn || !deleteModal) return;
 
-        toggleBtn.addEventListener("click", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            toggleSidebar();
+        document.getElementById('deleteRemitId').value = btn.getAttribute('data-remittance-id');
+        document.getElementById('deleteRemitAmount').textContent = btn.getAttribute('data-amount');
+        document.getElementById('deleteRemitDate').textContent = btn.getAttribute('data-date');
+
+        deleteModal.show();
+    });
+
+    // ── Record Payment modal ──
+    const recordModal = document.getElementById('recordModal');
+    if (recordModal) {
+        recordModal.addEventListener('show.bs.modal', function (event) {
+            const trigger = event.relatedTarget;
+            if (!trigger) return;
+
+            const carId    = trigger.getAttribute('data-car-id');
+            const carLabel = trigger.getAttribute('data-car-label');
+            const balance  = parseFloat(trigger.getAttribute('data-balance')) || 0;
+            const operator = trigger.getAttribute('data-operator');
+
+            document.getElementById('recordCarId').value = carId;
+            document.getElementById('recordCarLabel').textContent = carLabel;
+            document.getElementById('recordBalance').textContent = peso(balance);
+            document.getElementById('recordOperator').textContent = 'Operator: ' + operator;
+
+            const amountInput = document.getElementById('recordAmount');
+            amountInput.value = balance.toFixed(2);
+            amountInput.max = balance.toFixed(2);
+
+            document.getElementById('recordNotes').value = '';
+            document.getElementById('recordDate').value = new Date().toISOString().slice(0, 10);
+            document.getElementById('recordProofs').value = '';
         });
 
-        backdrop.addEventListener("click", toggleSidebar);
+        const amountInput = document.getElementById('recordAmount');
+        if (amountInput) {
+            amountInput.addEventListener('input', function () {
+                const max = parseFloat(this.max) || 0;
+                const val = parseFloat(this.value) || 0;
+                if (val > max) {
+                    this.value = max.toFixed(2);
+                }
+            });
+        }
+    }
+
+    // ── View Bookings modal ──
+    const bookingsModal = document.getElementById('bookingsModal');
+    if (bookingsModal) {
+        bookingsModal.addEventListener('show.bs.modal', function (event) {
+            const trigger = event.relatedTarget;
+            if (!trigger) return;
+
+            document.getElementById('bookingsModalCarLabel').textContent = trigger.getAttribute('data-car-label') || '';
+
+            let bookings = [];
+            try {
+                bookings = JSON.parse(trigger.getAttribute('data-bookings') || '[]');
+            } catch (e) { bookings = []; }
+
+            const body = document.getElementById('bookingsModalBody');
+            if (!bookings.length) {
+                body.innerHTML = '<p class="text-muted small mb-0">No bookings to show.</p>';
+                return;
+            }
+
+            let total = 0;
+            let html = '<div class="modal-section-title">Bookings contributing to this total</div>';
+
+            bookings.forEach(bk => {
+                const share = parseFloat(bk.operator_share) || 0;
+                total += share;
+
+                let hrs = 0;
+                if (bk.start_date && bk.end_date) {
+                    const s = new Date(bk.start_date + ' ' + (bk.pickup_time || '00:00:00'));
+                    const e = new Date(bk.end_date + ' ' + (bk.return_time || '00:00:00'));
+                    if (!isNaN(s) && !isNaN(e) && e > s) {
+                        hrs = Math.round(((e - s) / 3600000) * 10) / 10;
+                    }
+                }
+
+                const typeLabel = bk.booking_type ? bk.booking_type.charAt(0).toUpperCase() + bk.booking_type.slice(1) : '';
+                const settled = shortDate(bk.settled_at);
+
+                html += `
+                    <div class="history-item">
+                        <div>
+                            <div class="fw-bold">
+                                <a href="../shared/booking_details.php?id=${parseInt(bk.booking_id)}" class="booking-link">
+                                    #BK-${parseInt(bk.booking_id)}
+                                </a>
+                                <span class="text-muted small fw-normal">·</span>
+                                <span class="text-muted small fw-normal">${typeLabel}</span>
+                            </div>
+                            <div class="meta">
+                                ${shortDate(bk.start_date)} · ${hrs} hr${hrs === 1 ? '' : 's'} · Settled ${settled}
+                            </div>
+                        </div>
+                        <div class="amount">${peso(share)}</div>
+                    </div>
+                `;
+            });
+
+            html += `
+                <div class="history-item" style="border-top:2px solid #e2e8f0; margin-top:0.5rem; padding-top:0.85rem;">
+                    <div><div class="fw-bold">Total from bookings</div></div>
+                    <div class="amount" style="font-size:0.95rem;">${peso(total)}</div>
+                </div>
+            `;
+
+            body.innerHTML = html;
+        });
+    }
+
+    // ── Payment History modal (now with proof thumbnails) ──
+    const historyModal = document.getElementById('historyModal');
+    if (historyModal) {
+        historyModal.addEventListener('show.bs.modal', function (event) {
+            const trigger = event.relatedTarget;
+            if (!trigger) return;
+
+            document.getElementById('historyModalCarLabel').textContent = trigger.getAttribute('data-car-label') || '';
+
+            let remits = [];
+            try {
+                remits = JSON.parse(trigger.getAttribute('data-remits') || '[]');
+            } catch (e) { remits = []; }
+
+            const body = document.getElementById('historyModalBody');
+            if (!remits.length) {
+                body.innerHTML = '<p class="text-muted small mb-0">No payments recorded yet.</p>';
+                return;
+            }
+
+            let total = 0;
+            let html = '<div class="modal-section-title">Recorded remittances</div>';
+
+            remits.forEach(r => {
+                const amt = parseFloat(r.amount) || 0;
+                total += amt;
+
+                const dateLabel = shortDate(r.payment_date);
+                const recordedBy = r.recorded_by_name || 'Unknown';
+                const notesHtml = r.notes ? `<div class="meta">${escapeHtml(r.notes).replace(/\n/g, '<br>')}</div>` : '';
+
+                // Proof thumbnails
+                let proofsHtml = '';
+                if (Array.isArray(r.photos) && r.photos.length > 0) {
+                    proofsHtml += '<div class="proof-thumbs">';
+                    r.photos.forEach(p => {
+                        const url = PROOF_BASE + encodeURIComponent(p.file_name);
+                        const isPdf = /\.pdf$/i.test(p.file_name);
+                        if (isPdf) {
+                            proofsHtml += `
+                                <div class="proof-thumb proof-open"
+                                     data-url="${escapeHtml(url)}"
+                                     data-label="${escapeHtml(r.file_name || p.file_name)}"
+                                     title="PDF">
+                                    <i class="bi bi-file-earmark-pdf-fill pdf-icon"></i>
+                                </div>
+                            `;
+                        } else {
+                            proofsHtml += `
+                                <div class="proof-thumb proof-open"
+                                     data-url="${escapeHtml(url)}"
+                                     data-label="${escapeHtml(p.file_name)}"
+                                     title="View proof">
+                                    <img src="${escapeHtml(url)}" alt="Proof">
+                                </div>
+                            `;
+                        }
+                    });
+                    proofsHtml += '</div>';
+                }
+
+                                const remittanceId = parseInt(r.id) || 0;
+
+                html += `
+                    <div class="history-item">
+                        <div style="flex:1;">
+                            <div class="fw-bold">${peso(amt)}</div>
+                            <div class="meta">${dateLabel} · Recorded by ${escapeHtml(recordedBy)}</div>
+                            ${notesHtml}
+                            ${proofsHtml}
+                        </div>
+                        <div class="d-flex flex-column align-items-end gap-2">
+                            <div class="amount">
+                                <i class="bi bi-check-circle-fill"></i>
+                            </div>
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-danger remit-delete-btn"
+                                    data-remittance-id="${remittanceId}"
+                                    data-amount="${peso(amt)}"
+                                    data-date="${escapeHtml(dateLabel)}"
+                                    title="Delete this remittance">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `
+                <div class="history-item" style="border-top:2px solid #e2e8f0; margin-top:0.5rem; padding-top:0.85rem;">
+                    <div><div class="fw-bold">Total paid</div></div>
+                    <div class="amount" style="font-size:0.95rem;">${peso(total)}</div>
+                </div>
+            `;
+
+            body.innerHTML = html;
+        });
+    }
+
+    // ── Proof viewer modal (delegated click) ──
+    const proofModalEl = document.getElementById('proofModal');
+    let proofModal = null;
+    if (proofModalEl && typeof bootstrap !== 'undefined') {
+        proofModal = new bootstrap.Modal(proofModalEl);
+    }
+
+    document.addEventListener('click', function (e) {
+        const thumb = e.target.closest('.proof-open');
+        if (!thumb || !proofModal) return;
+
+        const url = thumb.getAttribute('data-url');
+        const label = thumb.getAttribute('data-label') || 'Proof';
+        const isPdf = /\.pdf$/i.test(url);
+
+        const body = document.getElementById('proofModalBody');
+        const labelEl = document.getElementById('proofModalLabel');
+        const openLink = document.getElementById('proofOpenNewTab');
+
+        labelEl.textContent = label;
+
+        if (isPdf) {
+            body.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="bi bi-file-earmark-pdf-fill" style="font-size:4rem;color:#dc2626;"></i>
+                    <p class="text-muted small mt-3 mb-0">PDF file — click "Open in new tab" to view.</p>
+                </div>
+            `;
+        } else {
+            body.innerHTML = `<img src="${url}" alt="Proof of payment" class="proof-viewer-img">`;
+        }
+
+        openLink.href = url;
+        openLink.style.display = 'inline-flex';
+
+        proofModal.show();
+    });
+
+    // ── Client-side search filter ──
+    const searchInput = document.getElementById('carSearch');
+    const carCols     = document.querySelectorAll('.car-col');
+    const emptyResult = document.getElementById('noSearchResults');
+    if (searchInput && carCols.length) {
+        searchInput.addEventListener('input', function () {
+            const q = this.value.trim().toLowerCase();
+            let visible = 0;
+            carCols.forEach(col => {
+                const haystack = col.getAttribute('data-search') || '';
+                const match = q === '' || haystack.includes(q);
+                col.style.display = match ? '' : 'none';
+                if (match) visible++;
+            });
+            if (emptyResult) {
+                emptyResult.classList.toggle('d-none', visible !== 0 || q === '');
+            }
+        });
     }
 });
 </script>

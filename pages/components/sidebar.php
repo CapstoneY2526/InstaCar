@@ -293,7 +293,7 @@ if (!function_exists('isUsersActive')) {
 
         <?php if ($role === 'admin'): ?>
             <!-- ==================== ADMIN ==================== -->
-            <div class="sidebar-section">Main Control</div>
+            <div class="sidebar-section">Main View</div>
             <li>
                 <a href="../admin/dashboard.php" class="nav-link <?= isActive('dashboard.php') ?>">
                     <i class="bi bi-grid-1x2-fill"></i><span>Dashboard</span>
@@ -301,6 +301,20 @@ if (!function_exists('isUsersActive')) {
             </li>
 
             <div class="sidebar-section">Management</div>
+
+            <!-- Reviews -->
+            <li>
+                <a href="../admin/review_list.php" class="nav-link <?= isActive('review_list.php') ?>">
+                    <i class="bi bi-star-fill"></i><span>Reviews</span>
+                </a>
+            </li>
+
+            <!-- Branches (moved above Users) -->
+            <li>
+                <a href="../admin/branches.php" class="nav-link <?= isActive('branches.php') ?>">
+                    <i class="bi bi-shop"></i><span>Branches</span>
+                </a>
+            </li>
 
             <!-- Users group -->
             <li>
@@ -310,19 +324,12 @@ if (!function_exists('isUsersActive')) {
                 </button>
                 <div class="collapse" id="userMenu">
                     <ul class="submenu">
+                        <li><a href="../admin/users.php?role=staff"    class="nav-link <?= isUsersActive('staff') ?>"><i class="bi bi-person-vcard me-2"></i>Staff</a></li>
                         <li><a href="../admin/users.php?role=admin"    class="nav-link <?= isUsersActive('admin') ?>"><i class="bi bi-shield-lock me-2"></i>Admins</a></li>
                         <li><a href="../admin/users.php?role=operator" class="nav-link <?= isUsersActive('operator') ?>"><i class="bi bi-person-badge me-2"></i>Operators</a></li>
-                        <li><a href="../admin/users.php?role=staff"    class="nav-link <?= isUsersActive('staff') ?>"><i class="bi bi-person-vcard me-2"></i>Staff</a></li>
                         <li><a href="../admin/users.php?role=user"     class="nav-link <?= isUsersActive('user') ?>"><i class="bi bi-person me-2"></i>Customers</a></li>
                     </ul>
                 </div>
-            </li>
-
-            <!-- Branches -->
-            <li>
-                <a href="../admin/branches.php" class="nav-link <?= isActive('branches.php') ?>">
-                    <i class="bi bi-shop"></i><span>Branches</span>
-                </a>
             </li>
 
             <!-- Staff Management group -->
@@ -356,13 +363,6 @@ if (!function_exists('isUsersActive')) {
                 </div>
             </li>
 
-            <!-- Reviews -->
-            <li>
-                <a href="../admin/review_list.php" class="nav-link <?= isActive('review_list.php') ?>">
-                    <i class="bi bi-star-fill"></i><span>Reviews</span>
-                </a>
-            </li>
-
             <div class="sidebar-section">Bookings</div>
             <li>
                 <button class="nav-link" type="button" data-bs-toggle="collapse" data-bs-target="#bookingMenu">
@@ -386,9 +386,9 @@ if (!function_exists('isUsersActive')) {
                 </button>
                 <div class="collapse" id="finMenu">
                     <ul class="submenu">
-                        <li><a href="../admin/expenses.php"    class="nav-link <?= isActive('expenses.php') ?>"><i class="bi bi-cart-dash me-2"></i>Expenses</a></li>
-                        <li><a href="../admin/settlements.php" class="nav-link <?= isActive('settlements.php') ?>"><i class="bi bi-cash-coin me-2"></i>Payments</a></li>
-                        <li><a href="../admin/remittance.php"  class="nav-link <?= isActive('remittance.php') ?>"><i class="bi bi-send-check me-2"></i>Remittance</a></li>
+                        <li><a href="../admin/settlements.php"      class="nav-link <?= isActive('settlements.php') ?>"><i class="bi bi-cash-coin me-2"></i>Settlements</a></li>
+                        <li><a href="../admin/remittance.php"       class="nav-link <?= isActive('remittance.php') ?>"><i class="bi bi-send-check me-2"></i>Staff Remittance</a></li>
+                        <li><a href="../admin/operator_revenue.php" class="nav-link <?= isActive('operator_revenue.php') ?>"><i class="bi bi-briefcase me-2"></i>Operator Remittance</a></li>
                     </ul>
                 </div>
             </li>
@@ -401,9 +401,9 @@ if (!function_exists('isUsersActive')) {
                 </button>
                 <div class="collapse" id="reportMenu">
                     <ul class="submenu">
-                        <li><a href="../admin/admin_revenue.php"    class="nav-link <?= isActive('admin_revenue.php') ?>"><i class="bi bi-house-door me-2"></i>House Revenue</a></li>
-                        <li><a href="../admin/operator_revenue.php" class="nav-link <?= isActive('operator_revenue.php') ?>"><i class="bi bi-briefcase me-2"></i>MGT Revenue</a></li>
-                        <li><a href="../admin/income.php"           class="nav-link <?= isActive('income.php') ?>"><i class="bi bi-graph-up-arrow me-2"></i>Income Statement</a></li>
+                        <li><a href="../admin/admin_revenue.php" class="nav-link <?= isActive('admin_revenue.php') ?>"><i class="bi bi-house-door me-2"></i>Fleet Revenue</a></li>
+                        <li><a href="../admin/expenses.php"      class="nav-link <?= isActive('expenses.php') ?>"><i class="bi bi-cart-dash me-2"></i>Fleet Breakdown</a></li>
+                        <li><a href="../admin/income.php"        class="nav-link <?= isActive('income.php') ?>"><i class="bi bi-graph-up-arrow me-2"></i>Income Statement</a></li>
                     </ul>
                 </div>
             </li>
@@ -475,6 +475,18 @@ if (!function_exists('isUsersActive')) {
             <li>
                 <a href="../staff/bookings_manual.php" class="nav-link <?= isActive('bookings_manual.php') ?>">
                     <i class="bi bi-pencil-square"></i><span>Manual Booking</span>
+                </a>
+            </li>
+
+            <div class="sidebar-section">Financials</div>
+            <li>
+                <a href="../staff/staff_settlements.php" class="nav-link <?= isActive('staff_settlements.php') ?>">
+                    <i class="bi bi-cash-coin"></i><span>Settlements</span>
+                </a>
+            </li>
+            <li>
+                <a href="../staff/staff_gross.php" class="nav-link <?= isActive('staff_gross.php') ?>">
+                    <i class="bi bi-graph-up-arrow"></i><span>Gross Earnings</span>
                 </a>
             </li>
 

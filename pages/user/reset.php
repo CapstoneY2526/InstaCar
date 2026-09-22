@@ -1,11 +1,25 @@
 <?php
 session_start();
 require_once __DIR__ . '/../../config/database.php';
+
 $token = $_GET['token'] ?? '';
 
-// Check if token exists and is valid
-$result = mysqli_query($conn, "SELECT * FROM users WHERE reset_token='$token' AND token_expiry > NOW()");
-if(mysqli_num_rows($result) == 0){
+// Basic format check: tokens are 64-char hex strings
+// (bin2hex(random_bytes(32)) produces exactly 64 hex chars)
+if (!is_string($token) || strlen($token) !== 64 || !ctype_xdigit($token)) {
+    header("Location: forgot.php?error=expired");
+    exit();
+}
+
+// Verify the token exists and hasn't expired — prepared statement prevents injection
+$stmt = mysqli_prepare($conn, "SELECT id FROM users WHERE reset_token = ? AND token_expiry > NOW() LIMIT 1");
+mysqli_stmt_bind_param($stmt, 's', $token);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$is_valid = mysqli_num_rows($result) > 0;
+mysqli_stmt_close($stmt);
+
+if (!$is_valid) {
     header("Location: forgot.php?error=expired");
     exit();
 }
@@ -25,24 +39,23 @@ if(mysqli_num_rows($result) == 0){
         .reset-box { background: #121212; padding: 40px; border-radius: 20px; width: 100%; max-width: 400px; border: 1px solid gray; box-shadow: 0 15px 35px rgba(0,0,0,0.5); }
         .brand-name { font-weight: 800; font-size: 2rem; }
         .text-yellow { color: #ffcc00; }
-        
+
         .password-wrapper {
             position: relative;
-            display: flex; 
+            display: flex;
             align-items: center;
         }
-        
+
         .form-control {
             background-color: #1e1e1e !important;
             border: 1px solid white !important;
             color: #ffffff !important;
             padding: 12px;
-            padding-right: 45px; /* space for eye */
+            padding-right: 45px;
             border-radius: 10px;
         }
 
-        /* The Eye Icon Styling */
-        .toggle-password {  
+        .toggle-password {
             position: absolute;
             right: 15px;
             top: 50%;
@@ -63,25 +76,23 @@ if(mysqli_num_rows($result) == 0){
             border: none;
             width: 100%;
             margin-top: 10px;
-            /* This makes the change smooth, not instant */
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
 
         .btn-brand:hover {
-            background-color: #e6b800; /* Darker gold */
+            background-color: #e6b800;
             color: #000;
-            transform: translateY(-2px); /* Slight lift effect */
+            transform: translateY(-2px);
             cursor: pointer;
         }
 
         .btn-brand:active {
-            transform: translateY(0); /* Pushes down when clicked */
+            transform: translateY(0);
         }
 
         .form-label { color: #ffffff !important; font-size: 0.9rem; margin-bottom: 5px; display: block; }
-        
-        /* Autofill override */
+
         input:-webkit-autofill {
             -webkit-text-fill-color: white !important;
             -webkit-box-shadow: 0 0 0px 1000px #1e1e1e inset !important;

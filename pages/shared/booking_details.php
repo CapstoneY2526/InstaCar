@@ -9,28 +9,21 @@ if (!isset($_SESSION['user_id']) || !isset($_GET['id'])) {
 
 // Helper function for asset paths - FIXED FOR INFINITYFREE
 function asset($path) {
-    // Get the base URL
     $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://';
     $host = $_SERVER['HTTP_HOST'];
     
-    // Check if running on InfinityFree
     $isInfinityFree = (strpos($host, 'rf.gd') !== false || 
                        strpos($host, 'infinityfreeapp.com') !== false || 
                        strpos($host, 'infinityfree.net') !== false ||
                        strpos($host, 'epizy.com') !== false);
     
-    // Determine the base path
     if ($isInfinityFree) {
-        // On InfinityFree, use root path
         $baseUrl = $protocol . $host . '/';
     } else {
-        // Local development
         $baseUrl = $protocol . $host . '/car-rental/';
     }
     
-    // Remove leading slash from path if present
     $path = ltrim($path, '/');
-    
     return $baseUrl . $path;
 }
 
@@ -38,59 +31,110 @@ $booking_id = (int)$_GET['id'];
 $user_id = (int)$_SESSION['user_id'];
 $user_role = $_SESSION['role'];
 
-// Fetch Booking Details
-$query = "SELECT b.*, 
-          c.brand, c.model, c.plate_number, c.image_path AS car_image_path, 
-          c.price_24_hours AS price_per_day, 
-          c.operator_24_hours AS extension_price,
-          u.name as registered_name, u.email as registered_email, u.phone as registered_phone,
-          owner.name as operator_name
-          FROM bookings b
-          JOIN cars c ON b.car_id = c.id
-          LEFT JOIN users u ON b.user_id = u.id 
-          JOIN users owner ON c.user_id = owner.id
-          WHERE b.id = $booking_id";
+// ── Fetch Booking Details (using prepared statement) ──
+$sql = "SELECT b.*, 
+               c.brand, c.model, c.plate_number, c.image_path AS car_image_path, 
+               c.price_24_hours AS price_per_day, 
+               c.operator_24_hours AS extension_price,
+               u.name as registered_name, u.email as registered_email, u.phone as registered_phone,
+               owner.name as operator_name
+        FROM bookings b
+        JOIN cars c ON b.car_id = c.id
+        LEFT JOIN users u ON b.user_id = u.id 
+        JOIN users owner ON c.user_id = owner.id
+        WHERE b.id = ?";
+
+$params = [$booking_id];
+$types  = 'i';
 
 if ($user_role === 'operator') {
-    $query .= " AND c.user_id = $user_id";
+    $sql .= " AND c.user_id = ?";
+    $params[] = $user_id;
+    $types   .= 'i';
 } elseif ($user_role === 'staff') {
     $branch_id = (int)($_SESSION['branch_id'] ?? 0);
     if ($branch_id > 0) {
-        $query .= " AND c.branch_id = $branch_id";
+        $sql .= " AND b.branch_id = ?";
+        $params[] = $branch_id;
+        $types   .= 'i';
     } else {
-        $query .= " AND 1=0";
+        $sql .= " AND 1=0";
     }
 } elseif ($user_role === 'user') {
-    $query .= " AND b.user_id = $user_id";
+    $sql .= " AND b.user_id = ?";
+    $params[] = $user_id;
+    $types   .= 'i';
 }
+// admin → no additional filter (see all bookings, matches calendar scope)
 
-$result = mysqli_query($conn, $query);
-$booking = mysqli_fetch_assoc($result);
+$stmt = $conn->prepare($sql);
+$stmt->bind_param($types, ...$params);
+$stmt->execute();
+$result = $stmt->get_result();
+$booking = $result->fetch_assoc();
+$stmt->close();
 
 if (!$booking) {
     die("<div class='container mt-5'><div class='alert alert-danger'>Booking not found or access denied.</div></div>");
 }
 
-// Fetch Customer Photos list
-$photos_query = "SELECT * FROM booking_photos WHERE booking_id = $booking_id ORDER BY uploaded_at DESC";
-$photos_result = mysqli_query($conn, $photos_query);
-$customer_photos = $photos_result ? mysqli_fetch_all($photos_result, MYSQLI_ASSOC) : [];
+// ── Fix times: combine date + time columns ──
+$pickupTimeVal = !empty($booking['pickup_time']) ? $booking['pickup_time'] : '00:00:00';
+$returnTimeVal = !empty($booking['return_time']) ? $booking['return_time'] : '00:00:00';
 
-// Fetch Customer Remarks list
-$remarks_query = "SELECT r.*, u.name as author_name FROM booking_remarks r LEFT JOIN users u ON r.created_by = u.id WHERE r.booking_id = $booking_id ORDER BY r.created_at DESC";
-$remarks_result = mysqli_query($conn, $remarks_query);
-$customer_remarks = $remarks_result ? mysqli_fetch_all($remarks_result, MYSQLI_ASSOC) : [];
+$pickupFullStr = $booking['start_date'] . ' ' . $pickupTimeVal;
+$returnFullStr = $booking['end_date']   . ' ' . $returnTimeVal;
 
-// Priority display info
+$pickupTs = strtotime($pickupFullStr);
+$returnTs = strtotime($returnFullStr);
+
+if (!$returnTs || $returnTs <= $pickupTs) {
+    // Fallback if times are malformed
+    $returnTs = strtotime($booking['end_date'] . ' 23:59:59');
+}
+
+$total_seconds = $returnTs - $pickupTs;
+$total_hours   = $total_seconds / 3600;
+$days_count    = floor($total_hours / 24);
+$extra_hours   = $total_hours - ($days_count * 24);
+
+// ── Fetch Customer Photos ──
+$photos_stmt = $conn->prepare("SELECT * FROM booking_photos WHERE booking_id = ? ORDER BY uploaded_at DESC");
+$photos_stmt->bind_param('i', $booking_id);
+$photos_stmt->execute();
+$photos_result = $photos_stmt->get_result();
+$customer_photos = $photos_result ? $photos_result->fetch_all(MYSQLI_ASSOC) : [];
+$photos_stmt->close();
+
+// ── Fetch Customer Remarks ──
+$remarks_stmt = $conn->prepare("SELECT r.*, u.name as author_name FROM booking_remarks r LEFT JOIN users u ON r.created_by = u.id WHERE r.booking_id = ? ORDER BY r.created_at DESC");
+$remarks_stmt->bind_param('i', $booking_id);
+$remarks_stmt->execute();
+$remarks_result = $remarks_stmt->get_result();
+$customer_remarks = $remarks_result ? $remarks_result->fetch_all(MYSQLI_ASSOC) : [];
+$remarks_stmt->close();
+
+// ── Display name/phone/email priority ──
 $displayName  = !empty($booking['registered_name']) ? $booking['registered_name'] : $booking['guest_name'];
-$displayPhone = !empty($booking['registered_phone']) ? $booking['registered_phone'] : $booking['phone_number'];
+$displayPhone = !empty($booking['registered_phone']) ? $booking['registered_phone'] : ($booking['phone_number'] ?? 'N/A');
 $displayEmail = !empty($booking['registered_email']) ? $booking['registered_email'] : ($booking['gmail'] ?? 'N/A');
+
+// ── Price breakdown ──
+$basePrice      = (float)($booking['base_price'] ?? $booking['total_price'] ?? 0);
+$deliveryFee    = (float)($booking['delivery_fee'] ?? 0);
+$pickupFee      = (float)($booking['pickup_fee'] ?? 0);
+$discountAmount = (float)($booking['discount_price'] ?? 0);
+$downPayment    = (float)($booking['down_payment'] ?? 0);
+$extensionFee   = (float)($booking['extension_price'] ?? 0);
+$extensionHours = (int)($booking['extension_hours'] ?? 0);
+$totalRental    = $basePrice + $deliveryFee + $pickupFee + $extensionFee - $discountAmount;
+$remainingBal   = (float)($booking['total_price'] ?? 0);
 
 $pageTitle = "Booking Details #" . $booking['id'];
 require_once __DIR__ . '/../components/head.php';
 
-$car_images = explode(',', $booking['car_image_path']);
-$first_car_image = trim($car_images[0]);
+$car_images = !empty($booking['car_image_path']) ? explode(',', $booking['car_image_path']) : [];
+$first_car_image = !empty($car_images[0]) ? trim($car_images[0]) : 'default.png';
 ?>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -303,21 +347,54 @@ $first_car_image = trim($car_images[0]);
         background-color: #bb2d3b;
     }
 
+    /* Price breakdown */
+    .price-breakdown {
+        background-color: #f8fafc;
+        border-radius: 0.75rem;
+        padding: 1rem 1.15rem;
+    }
+    .price-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 0;
+        font-size: 0.88rem;
+    }
+    .price-row.divider {
+        border-top: 1px dashed #cbd5e1;
+        margin: 6px 0;
+        padding: 0;
+    }
+    .price-row.total {
+        font-weight: 800;
+        font-size: 1.05rem;
+        color: #b38a00;
+        padding-top: 6px;
+    }
+    body.dark-mode .price-breakdown {
+        background-color: #1a1a1a;
+    }
+    body.dark-mode .price-row.divider {
+        border-top-color: #3f3f46;
+    }
+    body.dark-mode .price-row.total {
+        color: #ffd700;
+    }
+
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(8px); }
         to { opacity: 1; transform: translateY(0); }
     }
 
+    /* ── Dark mode ── */
     body.dark-mode {
         background-color: var(--brand-black) !important;
         color: #f1f5f9 !important;
     }
-
     body.dark-mode .main-wrapper,
     body.dark-mode .main-content {
         background-color: var(--brand-black) !important;
     }
-
     body.dark-mode header,
     body.dark-mode .header,
     body.dark-mode .topbar,
@@ -326,33 +403,28 @@ $first_car_image = trim($car_images[0]);
         border-color: var(--brand-border-dark) !important;
         color: #ffffff !important;
     }
-
     body.dark-mode .card-custom {
         background-color: var(--brand-card-bg-dark) !important;
         border-color: var(--brand-border-dark) !important;
         color: #f1f5f9 !important;
     }
-
     body.dark-mode .info-tile,
     body.dark-mode .remark-item {
         background-color: #1a1a1a !important;
         border-color: var(--brand-border-dark) !important;
         color: #f1f5f9 !important;
     }
-
     body.dark-mode .btn-secondary-custom {
         background-color: #1a1a1a !important;
         border-color: var(--brand-border-dark) !important;
         color: #ffffff !important;
     }
-
     body.dark-mode .form-select-custom,
     body.dark-mode .form-control-custom {
         background-color: #0d0d0d !important;
         border-color: var(--brand-border-dark) !important;
         color: #ffffff !important;
     }
-
     body.dark-mode .text-muted { color: #cbd5e1 !important; }
     body.dark-mode .border-light-subtle { border-color: var(--brand-border-dark) !important; }
 </style>
@@ -372,7 +444,16 @@ $first_car_image = trim($car_images[0]);
                     <i class="bi bi-arrow-left me-2"></i>Back to Calendar
                 </a>
 
-                <div>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <?php 
+                        // Booking type badge
+                        $bType = $booking['booking_type'] ?? 'online';
+                    ?>
+                    <span class="badge <?= $bType === 'manual' ? 'bg-secondary-subtle text-secondary' : 'bg-info-subtle text-info' ?> fw-bold px-3 py-2" style="font-size: 0.75rem;">
+                        <i class="bi <?= $bType === 'manual' ? 'bi-pencil-square' : 'bi-globe' ?> me-1"></i>
+                        <?= $bType === 'manual' ? 'Walk-in / Manual' : 'Online Booking' ?>
+                    </span>
+
                     <?php 
                         $badgeClasses = match($booking['status']) {
                             'Confirmed' => 'bg-info-subtle text-info border border-info-subtle',
@@ -381,9 +462,10 @@ $first_car_image = trim($car_images[0]);
                             'Cancelled' => 'bg-danger-subtle text-danger border border-danger-subtle',
                             default     => 'bg-secondary-subtle text-secondary border border-secondary-subtle'
                         };
+                        $statusLabel = $booking['status'] === 'Confirmed' ? 'Released' : $booking['status'];
                     ?>
                     <span class="status-pill <?= $badgeClasses ?>">
-                        <i class="bi bi-circle-fill fs-6"></i> Status: <?= htmlspecialchars($booking['status']) ?>
+                        <i class="bi bi-circle-fill fs-6"></i> Status: <?= htmlspecialchars($statusLabel) ?>
                     </span>
                 </div>
             </div>
@@ -415,25 +497,31 @@ $first_car_image = trim($car_images[0]);
                             </div>
                         </div>
 
+                         <!-- Schedule (uses proper date + time columns) -->
                         <div class="row text-center info-tile p-3 g-3 m-0">
                             <div class="col-6 col-md-3">
-                                <small class="text-muted d-block mb-1">Pick-up Date</small>
-                                <span class="fw-bold"><?= date('M d, Y H:i', strtotime($booking['start_date'])) ?></span>
+                                <small class="text-muted d-block mb-1">Pick-up</small>
+                                <span class="fw-bold d-block"><?= date('M d, Y', $pickupTs) ?></span>
+                                <span class="fw-bold text-warning" style="font-size: 0.9rem;">
+                                    <?= date('H:i', $pickupTs) ?> <span class="text-muted fw-normal">(<?= date('g:i A', $pickupTs) ?>)</span>
+                                </span>
                             </div>
                             <div class="col-6 col-md-3">
-                                <small class="text-muted d-block mb-1">Return Date</small>
-                                <span class="fw-bold"><?= date('M d, Y H:i', strtotime($booking['end_date'])) ?></span>
+                                <small class="text-muted d-block mb-1">Return</small>
+                                <span class="fw-bold d-block"><?= date('M d, Y', $returnTs) ?></span>
+                                <span class="fw-bold text-warning" style="font-size: 0.9rem;">
+                                    <?= date('H:i', $returnTs) ?> <span class="text-muted fw-normal">(<?= date('g:i A', $returnTs) ?>)</span>
+                                </span>
                             </div>
                             <div class="col-6 col-md-3">
                                 <small class="text-muted d-block mb-1">Total Duration</small>
                                 <span class="fw-bold">
                                     <?php 
-                                        $start = new DateTime($booking['start_date']);
-                                        $end = new DateTime($booking['end_date']);
-                                        $diff = $start->diff($end);
-                                        $total_hours = ($diff->days * 24) + $diff->h + ($diff->i / 60);
-                                        echo number_format($total_hours, 1);
-                                    ?> Hours
+                                        if ($days_count > 0) {
+                                            echo $days_count . 'd ';
+                                        }
+                                        echo number_format($extra_hours, 1) . 'h';
+                                    ?>
                                 </span>
                             </div>
                             <div class="col-6 col-md-3">
@@ -441,6 +529,18 @@ $first_car_image = trim($car_images[0]);
                                 <span class="fw-bold text-warning">₱<?= number_format($booking['price_per_day'], 0) ?></span>
                             </div>
                         </div>
+
+                        <?php if ($extensionHours > 0): ?>
+                        <div class="mt-3 p-3 rounded-3" style="background: #fff7d1; border: 1px solid #ffd700;">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-clock-history text-warning fs-5"></i>
+                                <div>
+                                    <div class="fw-bold small">Extension Applied</div>
+                                    <div class="small text-muted"><?= $extensionHours ?> extra hour<?= $extensionHours > 1 ? 's' : '' ?> — ₱<?= number_format($extensionFee, 2) ?></div>
+                                </div>
+                            </div>
+                        </div>
+                        <?php endif; ?>
                     </div>
 
                     <!-- CUSTOMER INFORMATION CARD -->
@@ -471,7 +571,7 @@ $first_car_image = trim($car_images[0]);
                             </div>
                             <?php endif; ?>
 
-                            <!-- CUSTOMER DOCUMENTS & VERIFICATION PHOTOS -->
+                            <!-- CUSTOMER DOCUMENTS -->
                             <div class="col-12">
                                 <hr class="my-2 border-light-subtle">
                                 <label class="small text-muted mb-3 d-block fw-semibold">Customer Documents & Verification Photos</label>
@@ -486,7 +586,6 @@ $first_car_image = trim($car_images[0]);
                                             <div class="col-4 col-sm-3">
                                                 <div class="cust-photo-card border rounded-3 overflow-hidden shadow-sm bg-dark text-center">
                                                     <?php if ($user_role !== 'user'): ?>
-                                                    <!-- Delete Photo Form (staff/admin/operator only) -->
                                                     <form action="process/delete_customer_item.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this document?');">
                                                         <input type="hidden" name="type" value="photo">
                                                         <input type="hidden" name="photo_id" value="<?= $photo['id'] ?>">
@@ -517,7 +616,7 @@ $first_car_image = trim($car_images[0]);
                                 <?php endif; ?>
                             </div>
 
-                            <!-- CUSTOMER REMARKS & NOTES HISTORY -->
+                            <!-- REMARKS -->
                             <div class="col-12">
                                 <hr class="my-2 border-light-subtle">
                                 <label class="small text-muted mb-2 d-block fw-semibold">Customer Remarks & Notes History</label>
@@ -532,7 +631,6 @@ $first_car_image = trim($car_images[0]);
                                                         <small class="text-muted" style="font-size: 0.75rem;"><?= date('M d, Y h:i A', strtotime($remark['created_at'])) ?></small>
                                                         
                                                         <?php if ($user_role !== 'user'): ?>
-                                                        <!-- Delete Remark Form (staff/admin/operator only) -->
                                                         <form action="process/delete_customer_item.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this note?');" class="d-inline">
                                                             <input type="hidden" name="type" value="remark">
                                                             <input type="hidden" name="remark_id" value="<?= $remark['id'] ?>">
@@ -553,11 +651,10 @@ $first_car_image = trim($car_images[0]);
                                 <?php endif; ?>
                             </div>
 
-                            <!-- UPLOAD AND REMARKS SUBMISSION FORM -->
+                            <!-- UPLOAD FORM -->
                             <form action="process/update_customer_info.php" method="POST" enctype="multipart/form-data" class="col-12 g-3 row m-0 p-0">
                                 <input type="hidden" name="booking_id" value="<?= $booking['id'] ?>">
 
-                                <!-- UPLOAD DROPZONE -->
                                 <div class="col-12 p-0 mb-3">
                                     <div class="upload-dropzone">
                                         <input type="file" name="customer_photos[]" id="customer_photos" multiple accept="image/*,.pdf" onchange="updateFileLabel(this)">
@@ -586,11 +683,78 @@ $first_car_image = trim($car_images[0]);
 
                 <!-- SIDEBAR ACTION PANEL -->
                 <div class="col-lg-4">
-                    <div class="card-custom p-4 text-center mb-4">
-                        <small class="text-uppercase tracking-wider fw-bold text-warning d-block mb-1" style="letter-spacing: 0.5px; font-size: 0.8rem;">Total Amount Due</small>
-                        <h3 class="fw-bold mb-0">₱<?= number_format($booking['total_price'], 2) ?></h3>
+                    <!-- PRICE BREAKDOWN -->
+                    <div class="card-custom p-4 mb-4">
+                        <h6 class="fw-bold mb-3 d-flex align-items-center">
+                            <i class="bi bi-cash-stack text-warning me-2"></i> Payment Breakdown
+                        </h6>
+
+                        <div class="price-breakdown">
+                            <div class="price-row">
+                                <span>Base Rental</span>
+                                <span class="fw-semibold">₱<?= number_format($basePrice, 2) ?></span>
+                            </div>
+
+                            <?php if ($deliveryFee > 0): ?>
+                            <div class="price-row">
+                                <span>Delivery Fee</span>
+                                <span class="fw-semibold">+ ₱<?= number_format($deliveryFee, 2) ?></span>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if ($pickupFee > 0): ?>
+                            <div class="price-row">
+                                <span>Pickup Fee</span>
+                                <span class="fw-semibold">+ ₱<?= number_format($pickupFee, 2) ?></span>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if ($extensionFee > 0): ?>
+                            <div class="price-row">
+                                <span>Extension Fee</span>
+                                <span class="fw-semibold">+ ₱<?= number_format($extensionFee, 2) ?></span>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if ($discountAmount > 0): ?>
+                            <div class="price-row" style="color: #dc3545;">
+                                <span>Discount</span>
+                                <span class="fw-semibold">- ₱<?= number_format($discountAmount, 2) ?></span>
+                            </div>
+                            <?php endif; ?>
+
+                            <div class="price-row divider"></div>
+                            <div class="price-row">
+                                <span class="fw-bold">Total Rental</span>
+                                <span class="fw-bold">₱<?= number_format($totalRental, 2) ?></span>
+                            </div>
+
+                            <?php if ($downPayment > 0): ?>
+                            <div class="price-row" style="color: #198754;">
+                                <span>Down Payment</span>
+                                <span class="fw-semibold">- ₱<?= number_format($downPayment, 2) ?></span>
+                            </div>
+                            <div class="price-row divider"></div>
+                            <?php endif; ?>
+
+                            <div class="price-row total">
+                                <span>Remaining Balance</span>
+                                <span>₱<?= number_format($remainingBal, 2) ?></span>
+                            </div>
+                        </div>
                     </div>
 
+                    <!-- BOOKING REMARKS (from bookings table) -->
+                    <?php if (!empty($booking['remarks'])): ?>
+                    <div class="card-custom p-4 mb-3">
+                        <h6 class="fw-bold mb-2 d-flex align-items-center">
+                            <i class="bi bi-chat-left-text text-warning me-2"></i> Booking Remarks
+                        </h6>
+                        <p class="small mb-0"><?= nl2br(htmlspecialchars($booking['remarks'])) ?></p>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- STATUS UPDATE -->
                     <?php if($user_role !== 'user'): ?>
                     <div class="card-custom p-4 mb-3">
                         <h6 class="fw-bold mb-3 d-flex align-items-center">
@@ -601,7 +765,7 @@ $first_car_image = trim($car_images[0]);
                             <div class="mb-3">
                                 <select name="status" class="form-select form-select-custom">
                                     <option value="Pending" <?= $booking['status'] == 'Pending' ? 'selected' : '' ?>>Pending</option>
-                                    <option value="Confirmed" <?= $booking['status'] == 'Confirmed' ? 'selected' : '' ?>>Confirmed</option>
+                                    <option value="Confirmed" <?= $booking['status'] == 'Confirmed' ? 'selected' : '' ?>>Released</option>
                                     <option value="Completed" <?= $booking['status'] == 'Completed' ? 'selected' : '' ?>>Completed</option>
                                     <option value="Cancelled" <?= $booking['status'] == 'Cancelled' ? 'selected' : '' ?>>Cancelled</option>
                                 </select>

@@ -16,6 +16,19 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'staf
 // Who is performing the current action
 $current_actor_id = (int)$_SESSION['user_id'];
 
+// Base URL for emails — auto-detects localhost vs production
+if (!function_exists('emailBaseUrl')) {
+    function emailBaseUrl() {
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        $scheme  = $isHttps ? 'https' : 'http';
+        $host    = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        // On localhost, XAMPP serves the project under /car-rental/
+        // On production, it serves from the domain root
+        $base = (strpos($host, 'localhost') !== false) ? '/car-rental' : '';
+        return $scheme . '://' . $host . $base;
+    }
+}
+
 // Helper: where to send the user back after an action
 function redirectBack($source = 'online') {
     if ($_SESSION['role'] === 'staff') {
@@ -25,32 +38,40 @@ function redirectBack($source = 'online') {
 }
 
 function calculatePriceByHours($hours, $p10, $p12, $p24, $ext1_6, $ext7_10, $ext11_12, $ext13_24) {
-    $hours = ceil($hours);
+    // Guard: round to 2 decimals to kill floating-point noise (e.g. 24.00000000004)
+    $hours = round($hours, 2);
+
+    // Apply ceil only for the sub-day tiers so a "just over 10h" booking
+    // lands on the 12h tier instead of falling through to 24h
     if ($hours <= 10) {
         return floatval($p10);
-    } elseif ($hours <= 12) {
-        return floatval($p12);
-    } elseif ($hours <= 24) {
-        return floatval($p24);
-    } else {
-        $days = floor($hours / 24);
-        $extraHours = $hours % 24;
-        
-        $basePrice = $days * floatval($p24);
-        
-        if ($extraHours > 0) {
-            if ($extraHours <= 6) {
-                $basePrice += ($extraHours * floatval($ext1_6));
-            } elseif ($extraHours <= 10) {
-                $basePrice += ($extraHours * floatval($ext7_10));
-            } elseif ($extraHours <= 12) {
-                $basePrice += ($extraHours * floatval($ext11_12));
-            } else {
-                $basePrice += ($extraHours * floatval($ext13_24));
-            }
-        }
-        return round($basePrice, 2);
     }
+    if ($hours <= 12) {
+        return floatval($p12);
+    }
+    if ($hours <= 24) {
+        return floatval($p24);
+    }
+
+    // Beyond 24 hours: bill whole days at the 24h rate + ONE flat extra charge
+    // based on which bracket the excess hours fall into.
+    $days       = floor($hours / 24);
+    $extraHours = $hours - ($days * 24);
+    $basePrice  = $days * floatval($p24);
+
+    if ($extraHours > 0) {
+        if ($extraHours <= 6) {
+            $basePrice += floatval($ext1_6);
+        } elseif ($extraHours <= 10) {
+            $basePrice += floatval($ext7_10);
+        } elseif ($extraHours <= 12) {
+            $basePrice += floatval($ext11_12);
+        } else {
+            $basePrice += floatval($ext13_24);
+        }
+    }
+
+    return round($basePrice, 2);
 }
 
 function getRateName($hours) {
@@ -284,7 +305,7 @@ if (isset($_GET['id'], $_GET['status'])) {
                 $email = !empty($data['user_email']) ? $data['user_email'] : $data['gmail'];
 
                 if (!empty($email)) {
-                    $review_link = "http://localhost/car-rental/pages/leave_review.php?booking_id=$booking_id";
+                    $review_link = emailBaseUrl() . "/pages/leave_review.php?booking_id=$booking_id";
                     $subject = "How was your ride, $name?";
                     $body = "
                     <div style='max-width:600px; margin:20px auto; font-family: \"Poppins\", sans-serif, Arial; background-color: #121212; border-radius:20px; overflow:hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #333;'>
@@ -341,6 +362,8 @@ if (isset($_GET['id'], $_GET['status'])) {
             $email = !empty($data['user_email']) ? $data['user_email'] : $data['booking_gmail'];
             $subject = "Booking Confirmed - InstaCar";
 
+            $dashboard_link = emailBaseUrl() . "/pages/user/dashboard.php";
+
             $body = "
             <div style='max-width:600px; margin:20px auto; font-family: \"Poppins\", sans-serif, Arial; background-color: #121212; border-radius:20px; overflow:hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #333;'>
                 <div style='background: #ffcc00; padding:40px; text-align:center;'>
@@ -357,7 +380,7 @@ if (isset($_GET['id'], $_GET['status'])) {
                     </div>
                     <p style='color: #bbb;'>You can view your full booking details, check pickup locations, and manage your trip anytime from your dashboard.</p>
                     <div style='text-align:center; margin:40px 0;'>
-                        <a href='http://localhost/car-rental/pages/user/dashboard.php' style='display:inline-block; background:#ffcc00; color:#000000; padding:15px 35px; text-decoration:none; border-radius:10px; font-weight:800; text-transform: uppercase; letter-spacing: 1px;'>
+                        <a href='$dashboard_link' style='display:inline-block; background:#ffcc00; color:#000000; padding:15px 35px; text-decoration:none; border-radius:10px; font-weight:800; text-transform: uppercase; letter-spacing: 1px;'>
                             Go to Dashboard
                         </a>
                     </div>
@@ -390,6 +413,8 @@ if (isset($_GET['id'], $_GET['status'])) {
             $email = !empty($data['user_email']) ? $data['user_email'] : $data['booking_gmail'];
             $subject = "Booking Cancellation Notice - InstaCar";
 
+            $dashboard_link = emailBaseUrl() . "/pages/user/dashboard.php";
+
             $body = "
             <div style='max-width:600px; margin:20px auto; font-family: \"Poppins\", sans-serif, Arial; background-color: #121212; border-radius:20px; overflow:hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #333;'>
                 <div style='background: #ffcc00; padding:40px; text-align:center;'>
@@ -406,7 +431,7 @@ if (isset($_GET['id'], $_GET['status'])) {
                     </div>
                     <p style='color: #bbb;'>If you have any questions regarding this charge or would like to book a different vehicle, please visit your dashboard or contact our support team.</p>
                     <div style='text-align:center; margin:40px 0;'>
-                        <a href='http://localhost/car-rental/pages/user/dashboard.php' style='display:inline-block; border: 2px solid #ffcc00; color:#ffcc00; padding:12px 30px; text-decoration:none; border-radius:10px; font-weight:800; text-transform: uppercase; letter-spacing: 1px;'>
+                        <a href='$dashboard_link' style='display:inline-block; border: 2px solid #ffcc00; color:#ffcc00; padding:12px 30px; text-decoration:none; border-radius:10px; font-weight:800; text-transform: uppercase; letter-spacing: 1px;'>
                             View Dashboard
                         </a>
                     </div>
