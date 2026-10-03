@@ -82,7 +82,7 @@ require_once __DIR__ . '/../components/head.php';
     /* Prevent event overflow beyond calendar cells */
     .fc-daygrid-day-frame {
         overflow: hidden !important;
-        max-height: 120px;
+        max-height: 130px;
     }
 
     .fc-daygrid-day {
@@ -155,7 +155,9 @@ require_once __DIR__ . '/../components/head.php';
         border-radius: 8px !important;
     }
     
-    .fc-event {
+    /* Grid events keep the compact pill look */
+    .fc-daygrid-event,
+    .fc-event:not(.fc-list-event) {
         border: none !important;
         padding: 2px 6px !important;
         font-size: 0.75rem !important;
@@ -285,44 +287,12 @@ require_once __DIR__ . '/../components/head.php';
         color: #ffcc00 !important;
     }
 
-    body.dark-mode .fc-event-main,
-    body.dark-mode .fc-event-main-frame,
-    body.dark-mode .fc-event-title,
-    body.dark-mode .fc-event-time {
+    body.dark-mode .fc-daygrid-event .fc-event-main,
+    body.dark-mode .fc-daygrid-event .fc-event-main-frame,
+    body.dark-mode .fc-daygrid-event .fc-event-title,
+    body.dark-mode .fc-daygrid-event .fc-event-time {
         color: #ffffff !important;
         font-weight: 500 !important;
-    }
-
-    body.dark-mode .fc-list,
-    body.dark-mode .fc-list-table {
-        background-color: #141414 !important;
-        border-color: #27272a !important;
-    }
-
-    body.dark-mode .fc-list-day-cushion,
-    body.dark-mode .fc-cell-shaded {
-        background-color: #1f1f1f !important;
-    }
-
-    body.dark-mode .fc-list-day-text,
-    body.dark-mode .fc-list-day-side-text {
-        color: #ffcc00 !important;
-        font-weight: 700 !important;
-    }
-
-    body.dark-mode .fc-list-event:hover td {
-        background-color: #2a2a2a !important;
-    }
-
-    body.dark-mode .fc-list-event-title,
-    body.dark-mode .fc-list-event-title a,
-    body.dark-mode .fc-list-event-time {
-        color: #ffffff !important;
-    }
-
-    body.dark-mode .fc-list-empty {
-        background-color: #141414 !important;
-        color: #a1a1aa !important;
     }
 
     body.dark-mode .fc-daygrid-more-link {
@@ -451,78 +421,62 @@ require_once __DIR__ . '/../components/head.php';
     }
 
     /* ========================================================
-       STATUS-BASED EVENT COLORS
+       STATUS-BASED EVENT COLORS — GRID ONLY
        ======================================================== */
-    .fc-event.status-pending {
+    .fc-daygrid-event.status-pending {
         background-color: #f59e0b !important;
         border-color: #f59e0b !important;
     }
-    .fc-event.status-pending .fc-event-title,
-    .fc-event.status-pending .fc-event-main-frame,
-    .fc-event.status-pending .fc-event-time {
+    .fc-daygrid-event.status-pending .fc-event-title,
+    .fc-daygrid-event.status-pending .fc-event-main-frame,
+    .fc-daygrid-event.status-pending .fc-event-time {
         color: #1f1300 !important;
     }
 
-    .fc-event.status-approved {
+    .fc-daygrid-event.status-approved {
         background-color: #10b981 !important;
         border-color: #10b981 !important;
     }
-    .fc-event.status-approved .fc-event-title,
-    .fc-event.status-approved .fc-event-main-frame,
-    .fc-event.status-approved .fc-event-time {
+    .fc-daygrid-event.status-approved .fc-event-title,
+    .fc-daygrid-event.status-approved .fc-event-main-frame,
+    .fc-daygrid-event.status-approved .fc-event-time {
         color: #ffffff !important;
     }
 
-    .fc-event.status-completed {
+    .fc-daygrid-event.status-completed {
         background-color: #3b82f6 !important;
         border-color: #3b82f6 !important;
     }
-    .fc-event.status-completed .fc-event-title,
-    .fc-event.status-completed .fc-event-main-frame,
-    .fc-event.status-completed .fc-event-time {
+    .fc-daygrid-event.status-completed .fc-event-title,
+    .fc-daygrid-event.status-completed .fc-event-main-frame,
+    .fc-daygrid-event.status-completed .fc-event-time {
         color: #ffffff !important;
     }
 
-    .fc-event.status-cancelled {
+    .fc-daygrid-event.status-cancelled {
         background-color: #ef4444 !important;
         border-color: #ef4444 !important;
+        opacity: 0.85;
     }
-    .fc-event.status-cancelled .fc-event-title,
-    .fc-event.status-cancelled .fc-event-main-frame,
-    .fc-event.status-cancelled .fc-event-time {
+    .fc-daygrid-event.status-cancelled .fc-event-title,
+    .fc-daygrid-event.status-cancelled .fc-event-main-frame,
+    .fc-daygrid-event.status-cancelled .fc-event-time {
         color: #ffffff !important;
     }
 
-    .fc-event.status-cancelled { opacity: 0.85; }
-
-    .fc-event.status-schedule {
+    .fc-daygrid-event.status-schedule {
         background-color: #8b5cf6 !important;
         border-color: #8b5cf6 !important;
         opacity: 0.85;
     }
-    .fc-event.status-schedule .fc-event-title,
-    .fc-event.status-schedule .fc-event-main-frame,
-    .fc-event.status-schedule .fc-event-time {
+    .fc-daygrid-event.status-schedule .fc-event-title,
+    .fc-daygrid-event.status-schedule .fc-event-main-frame,
+    .fc-daygrid-event.status-schedule .fc-event-time {
         color: #ffffff !important;
     }
 
-    .fc-list-event.status-schedule .fc-list-event-dot { border-color: #8b5cf6 !important; }
-    .fc-list-event.status-schedule .status-chip { background: #8b5cf6; color: #fff; }
-
-    .legend-schedule { color: #8b5cf6; }
-
-    .fc-list-event.status-pending .fc-list-event-dot { border-color: #f59e0b !important; }
-    .fc-list-event.status-approved .fc-list-event-dot { border-color: #10b981 !important; }
-    .fc-list-event.status-completed .fc-list-event-dot { border-color: #3b82f6 !important; }
-    .fc-list-event.status-cancelled .fc-list-event-dot { border-color: #ef4444 !important; }
-
-    .fc-list-event.status-pending .status-chip { background:#f59e0b; color:#1f1300; }
-    .fc-list-event.status-approved .status-chip { background:#10b981; color:#fff; }
-    .fc-list-event.status-completed .status-chip { background:#3b82f6; color:#fff; }
-    .fc-list-event.status-cancelled .status-chip { background:#ef4444; color:#fff; }
-
     /* ========================================================
-       LIST VIEW
+       LIST VIEW — subtle rows, colored accent only
        ======================================================== */
     .fc-list {
         border-radius: 0.9rem !important;
@@ -530,9 +484,26 @@ require_once __DIR__ . '/../components/head.php';
         border: 1px solid var(--brand-border, #e2e8f0) !important;
     }
 
+    /* Kill solid status backgrounds on list rows only — grid events keep theirs. */
+    .fc-list-event td,
+    .fc-list-event.status-pending td,
+    .fc-list-event.status-approved td,
+    .fc-list-event.status-completed td,
+    .fc-list-event.status-cancelled td,
+    .fc-list-event.status-schedule td {
+        background-color: transparent !important;
+    }
+
+    .fc-list-event .fc-event-title,
+    .fc-list-event .fc-event-main-frame,
+    .fc-list-event .fc-event-time {
+        color: inherit !important;
+    }
+
     .fc-list-day-cushion {
-        background: #f8fafc !important;
+        background: #f1f5f9 !important;
         padding: 10px 16px !important;
+        border-top: 1px solid #e2e8f0;
     }
 
     .fc-list-day-text,
@@ -540,13 +511,13 @@ require_once __DIR__ . '/../components/head.php';
         font-weight: 700 !important;
         color: #0f172a !important;
         text-decoration: none !important;
-        font-size: 0.9rem;
+        font-size: 0.88rem;
     }
 
     .fc-list-table td {
         padding: 10px 14px !important;
         vertical-align: middle !important;
-        border-color: var(--brand-border, #f1f5f9) !important;
+        border-color: #f1f5f9 !important;
     }
 
     .fc-list-event {
@@ -555,13 +526,20 @@ require_once __DIR__ . '/../components/head.php';
     }
 
     .fc-list-event:hover td {
-        background-color: #f8fafc;
+        background-color: #f8fafc !important;
     }
+
+    /* Recolor the native list-view dot per status */
+    .fc-list-event.status-pending   .fc-list-event-dot { border-color: #f59e0b !important; }
+    .fc-list-event.status-approved  .fc-list-event-dot { border-color: #10b981 !important; }
+    .fc-list-event.status-completed .fc-list-event-dot { border-color: #3b82f6 !important; }
+    .fc-list-event.status-cancelled .fc-list-event-dot { border-color: #ef4444 !important; }
+    .fc-list-event.status-schedule  .fc-list-event-dot { border-color: #8b5cf6 !important; }
 
     .fc-list-event-time {
         font-weight: 700 !important;
-        font-size: 0.8rem !important;
-        color: #475569 !important;
+        font-size: 0.78rem !important;
+        color: #94a3b8 !important;
         white-space: nowrap;
     }
 
@@ -572,47 +550,147 @@ require_once __DIR__ . '/../components/head.php';
     .fc-list-event-title {
         font-weight: 500 !important;
         font-size: 0.85rem !important;
+        color: #0f172a !important;
     }
 
+    /* Row layout: accent bar + body + chip */
     .fc-list-event-title .list-event-row {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
+        align-items: stretch;
         gap: 10px;
-        flex-wrap: wrap;
+    }
+
+    .list-event-accent {
+        flex-shrink: 0;
+        width: 4px;
+        border-radius: 3px;
+        background: var(--accent, #94a3b8);
+        align-self: stretch;
+        min-height: 32px;
     }
 
     .fc-list-event-title .list-event-main {
+        flex: 1 1 auto;
         display: flex;
-        flex-direction: column;
-        gap: 2px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
         min-width: 0;
     }
 
-    .fc-list-event-title .list-event-model {
+    .fc-list-event-title .list-event-body {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+    }
+
+    .list-event-model {
         font-weight: 700;
         color: #0f172a;
+        font-size: 0.85rem;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
-    .fc-list-event-title .list-event-id {
-        font-size: 0.7rem;
+    .list-event-id {
+        font-size: 0.68rem;
         font-weight: 600;
         color: #94a3b8;
     }
 
+    .list-event-time-badges {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 2px;
+    }
+
+    .time-badge {
+        font-size: 0.66rem;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+    }
+
+    .time-badge.release { background: #dbeafe; color: #1d4ed8; }
+    .time-badge.return  { background: #fee2e2; color: #b91c1c; }
+    .time-badge.sched   { background: #ede9fe; color: #6d28d9; }
+
     .fc-list-event-title .status-chip {
-        font-size: 0.62rem;
+        font-size: 0.6rem;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.03em;
-        padding: 3px 9px;
+        letter-spacing: 0.04em;
+        padding: 4px 10px;
         border-radius: 999px;
         white-space: nowrap;
         flex-shrink: 0;
+        background: #e2e8f0;
+        color: #475569;
     }
+
+    .fc-list-event.status-pending   .status-chip { background: #fef3c7; color: #92400e; }
+    .fc-list-event.status-approved  .status-chip { background: #d1fae5; color: #065f46; }
+    .fc-list-event.status-completed .status-chip { background: #dbeafe; color: #1e40af; }
+    .fc-list-event.status-cancelled .status-chip { background: #fee2e2; color: #991b1b; }
+    .fc-list-event.status-schedule  .status-chip { background: #ede9fe; color: #5b21b6; }
+
+    /* Continuation rows for in-between days of multi-day bookings */
+    tr.fc-list-row-continuation td {
+        padding-top: 3px !important;
+        padding-bottom: 3px !important;
+        background: #fafbfc !important;
+    }
+    tr.fc-list-row-continuation .fc-list-event-graphic,
+    tr.fc-list-row-continuation .fc-list-event-time { opacity: 0.3; }
+
+    .list-event-row.continuation {
+        min-height: 14px;
+        align-items: center;
+        cursor: help;
+    }
+
+    .list-event-row.continuation .list-event-accent {
+        min-height: 14px;
+        opacity: 0.45;
+        background-image: repeating-linear-gradient(
+            to bottom,
+            var(--accent, #94a3b8) 0,
+            var(--accent, #94a3b8) 4px,
+            transparent 4px,
+            transparent 7px
+        );
+        background-color: transparent;
+    }
+
+    /* "+N more" toggle row */
+    tr.list-more-row td {
+        padding: 8px 14px !important;
+        text-align: center;
+        background: #f8fafc !important;
+        border-top: 1px dashed #e2e8f0 !important;
+    }
+
+    .list-more-toggle {
+        border: none;
+        background: #ffffff;
+        color: #475569;
+        font-weight: 700;
+        font-size: 0.72rem;
+        padding: 4px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .list-more-toggle:hover { background: #f1f5f9; color: #0f172a; }
 
     .fc-list-empty {
         padding: 3rem 1rem !important;
@@ -622,20 +700,48 @@ require_once __DIR__ . '/../components/head.php';
         background-color: #ffffff !important;
     }
 
-    body.dark-mode .fc-list-event:hover td {
-        background-color: #2a2a2a !important;
+    /* ---- Dark mode list overrides ---- */
+    body.dark-mode .fc-list-day-cushion {
+        background: #1f1f1f !important;
+        border-top-color: #27272a !important;
     }
+    body.dark-mode .fc-list-day-text,
+    body.dark-mode .fc-list-day-side-text { color: #ffcc00 !important; }
 
-    body.dark-mode .fc-list-event-title .list-event-model {
-        color: #ffffff !important;
-    }
+    body.dark-mode .fc-list-table td { border-color: #27272a !important; }
+    body.dark-mode .fc-list-event:hover td { background-color: #1f1f1f !important; }
+    body.dark-mode .fc-list-event-title,
+    body.dark-mode .fc-list-event-title a,
+    body.dark-mode .fc-list-event-time { color: #e4e4e7 !important; }
 
-    body.dark-mode .fc-list-event-title .list-event-id {
-        color: #71717a !important;
+    body.dark-mode .list-event-model { color: #ffffff !important; }
+    body.dark-mode .list-event-id { color: #71717a !important; }
+
+    body.dark-mode .time-badge.release { background: #1e3a8a; color: #bfdbfe; }
+    body.dark-mode .time-badge.return  { background: #7f1d1d; color: #fecaca; }
+    body.dark-mode .time-badge.sched   { background: #4c1d95; color: #ddd6fe; }
+
+    body.dark-mode .fc-list-event.status-pending   .status-chip { background: #78350f; color: #fde68a; }
+    body.dark-mode .fc-list-event.status-approved  .status-chip { background: #064e3b; color: #6ee7b7; }
+    body.dark-mode .fc-list-event.status-completed .status-chip { background: #1e3a8a; color: #93c5fd; }
+    body.dark-mode .fc-list-event.status-cancelled .status-chip { background: #7f1d1d; color: #fca5a5; }
+    body.dark-mode .fc-list-event.status-schedule  .status-chip { background: #4c1d95; color: #c4b5fd; }
+
+    body.dark-mode tr.fc-list-row-continuation td { background: #161616 !important; }
+    body.dark-mode tr.list-more-row td {
+        background: #1a1a1a !important;
+        border-top-color: #27272a !important;
     }
+    body.dark-mode .list-more-toggle {
+        background: #27272a;
+        color: #ffcc00;
+        box-shadow: none;
+    }
+    body.dark-mode .list-more-toggle:hover { background: #2f2f2f; }
 
     body.dark-mode .fc-list-empty {
         background-color: #141414 !important;
+        color: #71717a !important;
     }
 
     @media (max-width: 992px) {
@@ -656,6 +762,8 @@ require_once __DIR__ . '/../components/head.php';
         .fc-list-event-title .list-event-row { gap: 6px; }
         .fc-list-event-title .status-chip { font-size: 0.58rem; padding: 2px 7px; }
         .fc-list-day-cushion { padding: 7px 10px !important; }
+        .time-badge { font-size: 0.6rem; padding: 2px 6px; }
+        .list-event-model { font-size: 0.78rem; }
     }
 </style>
 
@@ -733,6 +841,10 @@ document.addEventListener('DOMContentLoaded', function() {
     var dailyAgendaModal = new bootstrap.Modal(document.getElementById('dailyAgendaModal'));
     var userRole = '<?= $user_role ?>';
 
+    // Max bookings shown per day before "+N more" collapse (list view).
+    // Grid view uses dayMaxEvents below.
+    var DAY_LIMIT = 3;
+
     function redirectToDetails(eventId) {
         window.location.href = 'booking_details.php?id=' + eventId;
     }
@@ -752,34 +864,115 @@ document.addEventListener('DOMContentLoaded', function() {
         return `${hours}:${minutes}`;
     }
 
-    var calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: 'dayGridMonth',
-        headerToolbar: {
+    // ── Mobile lock ───────────────────────────────────────────
+    // Phones/tablets get list view only; grid view breaks on narrow screens.
+    var mobileMql = window.matchMedia('(max-width: 768px)');
+    var isMobile = mobileMql.matches;
+
+    function buildToolbar() {
+        return {
             left: 'prev,next',
             center: 'title',
-            right: 'dayGridMonth,listMonth'
-        },
-        dayMaxEvents: 4,
-        moreLinkClick: "popover", 
-        events: function(fetchInfo, successCallback, failureCallback) {
-            fetch('process/fetch_bookings.php')
-                .then(response => response.json())
-                .then(data => successCallback(data))
-                .catch(error => {
-                    console.error('Error fetching bookings:', error);
-                    failureCallback(error);
-                });
-        },
+            right: isMobile ? 'listMonth' : 'dayGridMonth,listMonth'
+        };
+    }
+
+    // ── Collapse each list day to DAY_LIMIT rows ──────────────
+    var enforceTimer = null;
+
+    function enforceListDayLimit() {
+        var tbody = document.querySelector('#calendar .fc-list-table tbody');
+        if (!tbody) return;
+
+        // Clean up previous injections first (idempotent re-renders).
+        tbody.querySelectorAll('tr.list-more-row').forEach(function(r) { r.remove(); });
+        tbody.querySelectorAll('tr.fc-list-event[data-hidden-by-limit="1"]').forEach(function(r) {
+            r.style.display = '';
+            r.removeAttribute('data-hidden-by-limit');
+        });
+
+        // Group rows by their day header.
+        var groups = [];
+        var current = null;
+        Array.prototype.forEach.call(tbody.children, function(row) {
+            if (row.classList.contains('fc-list-day')) {
+                current = { events: [] };
+                groups.push(current);
+            } else if (current && row.classList.contains('fc-list-event')) {
+                current.events.push(row);
+            }
+        });
+
+        groups.forEach(function(g) {
+            if (g.events.length <= DAY_LIMIT) return;
+
+            // Longest-running bookings first (multi-day rentals stay visible).
+            var sorted = g.events.slice().sort(function(a, b) {
+                var da = parseFloat(a.dataset.duration) || 0;
+                var db = parseFloat(b.dataset.duration) || 0;
+                return db - da;
+            });
+
+            var hidden = sorted.slice(DAY_LIMIT);
+            hidden.forEach(function(r) {
+                r.style.display = 'none';
+                r.setAttribute('data-hidden-by-limit', '1');
+            });
+
+            // Anchor the "+N more" row after the last visible event row.
+            var lastRow = g.events[g.events.length - 1];
+            var moreRow = document.createElement('tr');
+            moreRow.className = 'list-more-row';
+            var label = '+ ' + hidden.length + ' more booking' + (hidden.length > 1 ? 's' : '');
+            moreRow.innerHTML = '<td colspan="3">' +
+                '<button type="button" class="list-more-toggle">' +
+                '<i class="bi bi-chevron-down me-1"></i>' + label +
+                '</button></td>';
+            lastRow.parentNode.insertBefore(moreRow, lastRow.nextSibling);
+
+            var expanded = false;
+            moreRow.querySelector('.list-more-toggle').addEventListener('click', function() {
+                expanded = !expanded;
+                hidden.forEach(function(r) { r.style.display = expanded ? '' : 'none'; });
+                this.innerHTML = expanded
+                    ? '<i class="bi bi-chevron-up me-1"></i>Show less'
+                    : '<i class="bi bi-chevron-down me-1"></i>' + label;
+            });
+        });
+    }
+
+    function scheduleEnforce() {
+        clearTimeout(enforceTimer);
+        enforceTimer = setTimeout(enforceListDayLimit, 0);
+    }
+
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: isMobile ? 'listMonth' : 'dayGridMonth',
+        headerToolbar: buildToolbar(),
+        displayEventTime: false,
+        dayMaxEvents: DAY_LIMIT,     // grid view: show max 3, rest go to "+N more"
+        moreLinkClick: 'popover',
         height: 650,
         editable: false,
-        selectable: true,
-        eventOrder: '-duration,start',
+        selectable: false,           // list rows use eventClick, not dateClick
+        eventOrder: 'start,-duration,allDay,title',
+
+        events: function(fetchInfo, successCallback, failureCallback) {
+            fetch('process/fetch_bookings.php')
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(successCallback)
+                .catch(function(err) {
+                    console.error('Error fetching bookings:', err);
+                    failureCallback(err);
+                });
+        },
 
         eventClassNames: function(arg) {
             const props = arg.event.extendedProps || {};
-            if (props.type === 'schedule') {
-                return ['status-schedule'];
-            }
+            if (props.type === 'schedule') return ['status-schedule'];
             const status = (props.status || '').toLowerCase();
             return status ? ['status-' + status] : [];
         },
@@ -793,42 +986,104 @@ document.addEventListener('DOMContentLoaded', function() {
             const status = props.status || '';
 
             const rawStart = props.raw_start ? new Date(props.raw_start) : arg.event.start;
-            const rawEnd   = props.raw_end ? new Date(props.raw_end) : arg.event.end;
+            const rawEnd   = props.raw_end   ? new Date(props.raw_end)   : (arg.event.end || arg.event.start);
 
             const isStartSegment = arg.isStart;
             const isEndSegment   = arg.isEnd;
+            const isSameDay      = isStartSegment && isEndSegment;
+
+            const releaseTime = formatToMilitaryTime(rawStart);
+            const returnTime  = formatToMilitaryTime(rawEnd);
 
             let timeStr = '';
-
             if (isSchedule) {
                 timeStr = '00:00 - 00:00 (All-Day)';
+            } else if (isSameDay) {
+                timeStr = `${releaseTime} - ${returnTime}`;
+            } else if (isStartSegment) {
+                timeStr = `${releaseTime} - 00:00`;
+            } else if (isEndSegment) {
+                timeStr = `00:00 - ${returnTime}`;
             } else {
-                const releaseTime = formatToMilitaryTime(rawStart);
-                const returnTime  = formatToMilitaryTime(rawEnd);
-
-                if (isStartSegment && isEndSegment) {
-                    timeStr = `${releaseTime} - ${returnTime}`;
-                } else if (isStartSegment) {
-                    timeStr = `${releaseTime} - 00:00`;
-                } else if (isEndSegment) {
-                    timeStr = `00:00 - ${returnTime}`;
-                } else {
-                    timeStr = `00:00 - 00:00`;
-                }
+                timeStr = '00:00 - 00:00';
             }
 
             let customEl = document.createElement('div');
             customEl.className = 'fc-event-main-frame';
 
             if (arg.view.type === 'listMonth') {
-                customEl.innerHTML = `
-                    <div class="list-event-row">
-                        <div class="list-event-main">
-                            <span class="list-event-model">${model} • ${color}</span>
-                            <span class="list-event-id">ID #${arg.event.id}${timeStr ? ' • ' + timeStr : ''}</span>
-                        </div>
-                        ${status ? `<span class="status-chip">${status}</span>` : ''}
-                    </div>`;
+                const statusColors = {
+                    'Approved':  '#10b981',
+                    'Pending':   '#f59e0b',
+                    'Completed': '#3b82f6',
+                    'Cancelled': '#ef4444'
+                };
+                const accent = isSchedule ? '#8b5cf6' : (statusColors[status] || '#64748b');
+                const statusChip = status ? `<span class="status-chip">${status}</span>` : '';
+
+                if (isSchedule) {
+                    customEl.innerHTML = `
+                        <div class="list-event-row" style="--accent:${accent}">
+                            <div class="list-event-accent"></div>
+                            <div class="list-event-main">
+                                <div class="list-event-body">
+                                    <span class="list-event-model">${model} • ${color}</span>
+                                    <span class="list-event-time-badges"><span class="time-badge sched">🚧 All-day</span></span>
+                                </div>
+                                ${statusChip}
+                            </div>
+                        </div>`;
+                } else if (isSameDay) {
+                    customEl.innerHTML = `
+                        <div class="list-event-row" style="--accent:${accent}">
+                            <div class="list-event-accent"></div>
+                            <div class="list-event-main">
+                                <div class="list-event-body">
+                                    <span class="list-event-model">${model} • ${color}</span>
+                                    <span class="list-event-time-badges">
+                                        <span class="time-badge release">🛬 ${releaseTime}</span>
+                                        <span class="time-badge return">🛫 ${returnTime}</span>
+                                    </span>
+                                    <span class="list-event-id">ID #${arg.event.id}</span>
+                                </div>
+                                ${statusChip}
+                            </div>
+                        </div>`;
+                } else if (isStartSegment) {
+                    customEl.innerHTML = `
+                        <div class="list-event-row" style="--accent:${accent}">
+                            <div class="list-event-accent"></div>
+                            <div class="list-event-main">
+                                <div class="list-event-body">
+                                    <span class="list-event-model">${model} • ${color}</span>
+                                    <span class="list-event-time-badges"><span class="time-badge release">🛬 Release ${releaseTime}</span></span>
+                                    <span class="list-event-id">ID #${arg.event.id}</span>
+                                </div>
+                                ${statusChip}
+                            </div>
+                        </div>`;
+                } else if (isEndSegment) {
+                    customEl.innerHTML = `
+                        <div class="list-event-row" style="--accent:${accent}">
+                            <div class="list-event-accent"></div>
+                            <div class="list-event-main">
+                                <div class="list-event-body">
+                                    <span class="list-event-model">${model} • ${color}</span>
+                                    <span class="list-event-time-badges"><span class="time-badge return">🛫 Return ${returnTime}</span></span>
+                                    <span class="list-event-id">ID #${arg.event.id}</span>
+                                </div>
+                                ${statusChip}
+                            </div>
+                        </div>`;
+                } else {
+                    // In-between day: connected thread, no repeated text.
+                    customEl.innerHTML = `
+                        <div class="list-event-row continuation" style="--accent:${accent}"
+                             title="${model} • ${color} • ID #${arg.event.id} (in progress)">
+                            <div class="list-event-accent"></div>
+                            <span class="continuation-dot"></span>
+                        </div>`;
+                }
             } else {
                 customEl.innerHTML = `
                     <div class="fc-event-title-container">
@@ -838,6 +1093,23 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>`;
             }
             return { domNodes: [customEl] };
+        },
+
+        eventDidMount: function(info) {
+            if (info.view.type !== 'listMonth') return;
+
+            const props = info.event.extendedProps || {};
+            const s = props.raw_start ? new Date(props.raw_start) : info.event.start;
+            const e = props.raw_end   ? new Date(props.raw_end)   : (info.event.end || s);
+            info.el.dataset.duration = String(Math.max(0, e - s));
+
+            if (!info.isStart && !info.isEnd) {
+                info.el.classList.add('fc-list-row-continuation');
+            }
+        },
+
+        eventsSet: function() {
+            if (calendar.view.type === 'listMonth') scheduleEnforce();
         },
 
         dayCellDidMount: function(arg) {
@@ -851,9 +1123,12 @@ document.addEventListener('DOMContentLoaded', function() {
         },
 
         dateClick: function(info) {
-            const clickedDateStr = info.dateStr; 
+            if (info.view.type === 'listMonth') return;
+
+            const clickedDateStr = info.dateStr;
             const formattedDateOptions = { month: 'short', day: 'numeric', year: 'numeric' };
-            document.getElementById('agendaModalDateTitle').innerText = info.date.toLocaleDateString('en-US', formattedDateOptions);
+            document.getElementById('agendaModalDateTitle').innerText =
+                info.date.toLocaleDateString('en-US', formattedDateOptions);
 
             const targetStart = new Date(info.date);
             targetStart.setHours(0, 0, 0, 0);
@@ -862,11 +1137,14 @@ document.addEventListener('DOMContentLoaded', function() {
             targetEnd.setHours(23, 59, 59, 999);
 
             const allEvents = calendar.getEvents();
-            
+
             const filteredEvents = allEvents.filter(evt => {
-                let start = new Date(evt.start);
-                let end = evt.end ? new Date(evt.end) : new Date(start);
-                return (start <= targetEnd && end > targetStart);
+                const props = evt.extendedProps || {};
+                const s = props.raw_start ? new Date(props.raw_start) : new Date(evt.start);
+                const e = props.raw_end
+                    ? new Date(props.raw_end)
+                    : (evt.end ? new Date(evt.end.getTime() - 1000) : new Date(s));
+                return (s <= targetEnd && e >= targetStart);
             });
 
             const container = document.getElementById('agendaModalContainer');
@@ -884,19 +1162,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
             filteredEvents.forEach(evt => {
                 const props = evt.extendedProps || {};
-                let start = props.raw_start ? new Date(props.raw_start) : new Date(evt.start);
-                let end = props.raw_end ? new Date(props.raw_end) : (evt.end ? new Date(evt.end) : new Date(start));
+                const start = props.raw_start ? new Date(props.raw_start) : new Date(evt.start);
+                const end   = props.raw_end
+                    ? new Date(props.raw_end)
+                    : (evt.end ? new Date(evt.end.getTime() - 1000) : new Date(start));
 
-                const targetIsoStr = clickedDateStr;
                 const startIsoStr = toLocalIsoString(start);
-                const endIsoStr = toLocalIsoString(end);
+                const endIsoStr   = toLocalIsoString(end);
 
                 let actionLabel = '';
                 let actionBadgeClass = '';
                 let timeRangeDisplay = '';
 
-                const startTimeMil = formatToMilitaryTime(start) || '00:00';
-                const endTimeMil = formatToMilitaryTime(end) || '00:00';
+                const startTimeMil = formatToMilitaryTime(start);
+                const endTimeMil   = formatToMilitaryTime(end);
 
                 if (props.type === 'schedule') {
                     actionLabel = '🚧 ' + (props.reason || 'Blocked');
@@ -906,26 +1185,26 @@ document.addEventListener('DOMContentLoaded', function() {
                     actionLabel = 'Same-Day Rental';
                     actionBadgeClass = 'bg-dark text-white';
                     timeRangeDisplay = `${startTimeMil} - ${endTimeMil}`;
-                } else if (targetIsoStr === startIsoStr) {
+                } else if (clickedDateStr === startIsoStr) {
                     actionLabel = '🛬 Vehicle Pickup';
                     actionBadgeClass = 'bg-primary bg-opacity-10 text-primary';
                     timeRangeDisplay = `${startTimeMil} - 00:00`;
-                } else if (targetIsoStr === endIsoStr) {
+                } else if (clickedDateStr === endIsoStr) {
                     actionLabel = '🛫 Vehicle Return';
                     actionBadgeClass = 'bg-danger bg-opacity-10 text-danger';
                     timeRangeDisplay = `00:00 - ${endTimeMil}`;
                 } else {
                     actionLabel = '🚗 Booked Out';
                     actionBadgeClass = 'bg-secondary bg-opacity-10 text-secondary';
-                    timeRangeDisplay = `All Day`;
+                    timeRangeDisplay = 'All Day';
                 }
 
                 const model = props.model || 'Vehicle';
                 const color = props.color || 'N/A';
 
                 const colors = {
-                    'Approved': '#10b981',
-                    'Pending': '#f59e0b',
+                    'Approved':  '#10b981',
+                    'Pending':   '#f59e0b',
                     'Completed': '#3b82f6',
                     'Cancelled': '#ef4444'
                 };
@@ -934,13 +1213,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 const startDateLabel = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                 const endDateLabel   = end.toLocaleDateString('en-US',   { month: 'short', day: 'numeric' });
                 const sameDay        = (startIsoStr === endIsoStr);
-                const dateRangeLabel = sameDay
-                    ? startDateLabel
-                    : `${startDateLabel} → ${endDateLabel}`;
+                const dateRangeLabel = sameDay ? startDateLabel : `${startDateLabel} → ${endDateLabel}`;
 
                 const itemDiv = document.createElement('div');
-                itemDiv.className = "card border-0 bg-light p-3 rounded-3 mb-2 shadow-sm text-start agenda-item-card";
-                itemDiv.style.cursor = "pointer";
+                itemDiv.className = 'card border-0 bg-light p-3 rounded-3 mb-2 shadow-sm text-start agenda-item-card';
+                itemDiv.style.cursor = 'pointer';
                 itemDiv.innerHTML = `
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
@@ -964,7 +1241,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 itemDiv.addEventListener('click', function() {
                     if (props.type === 'schedule') return;
-                    dailyAgendaModal.hide(); 
+                    dailyAgendaModal.hide();
                     redirectToDetails(evt.id);
                 });
 
@@ -976,13 +1253,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
         eventClick: function(info) {
             info.jsEvent.preventDefault();
-            
+
             const props = info.event.extendedProps || {};
             if (props.type === 'schedule') {
                 const dayDate = new Date(info.event.start);
-                const formattedDate = dayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                const formattedDate = dayDate.toLocaleDateString('en-US',
+                    { month: 'short', day: 'numeric', year: 'numeric' });
                 document.getElementById('agendaModalDateTitle').innerText = formattedDate;
-                
+
                 const container = document.getElementById('agendaModalContainer');
                 container.innerHTML = `
                     <div class="card border-0 bg-light p-3 rounded-3 mb-2 shadow-sm agenda-item-card">
@@ -1001,14 +1279,27 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                     </div>
                 `;
-                new bootstrap.Modal(document.getElementById('dailyAgendaModal')).show();
+                dailyAgendaModal.show();
                 return;
             }
-            
+
             redirectToDetails(info.event.id);
+        },
+
+        datesSet: function(arg) {
+            if (arg.view.type === 'listMonth') scheduleEnforce();
         }
     });
 
     calendar.render();
+
+    // Lock mobile to list view and update toolbar when crossing the breakpoint.
+    mobileMql.addEventListener('change', function(e) {
+        isMobile = e.matches;
+        calendar.setOption('headerToolbar', buildToolbar());
+        if (isMobile && calendar.view.type !== 'listMonth') {
+            calendar.changeView('listMonth');
+        }
+    });
 });
 </script>
