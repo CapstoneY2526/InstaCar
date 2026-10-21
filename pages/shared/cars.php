@@ -9,9 +9,21 @@
         exit();
     }
 
+    // CSRF Token
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
     $current_user_id = (int)$_SESSION['user_id'];
     $user_role = $_SESSION['role'];
     $pageTitle = ($user_role === 'admin') ? 'Fleet Management' : 'My Car Fleet';
+
+    // Determine base URL for images (Localhost vs InfinityFree)
+    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://';
+    $host = $_SERVER['HTTP_HOST'];
+    $isInfinityFree = (strpos($host, 'rf.gd') !== false || strpos($host, 'infinityfreeapp.com') !== false || strpos($host, 'infinityfree.net') !== false || strpos($host, 'epizy.com') !== false);
+    $baseUrl = $isInfinityFree ? $protocol . $host . '/' : $protocol . $host . '/car-rental/';
+    $carsImgBaseUrl = $baseUrl . 'public/assets/images/cars/';
 
     // Get stats (with branch scope)
     $statsQuery = "SELECT 
@@ -26,13 +38,15 @@
         $statsQuery .= " AND user_id = $current_user_id";
     }
 
-    // Admin-only branch filter; staff/operator auto-scope via helper
     $statsQuery .= branchScopeSql();
-
     $statsResult = mysqli_query($conn, $statsQuery);
+    
+    if (!$statsResult) {
+        die("Error getting stats: " . mysqli_error($conn));
+    }
     $stats = mysqli_fetch_assoc($statsResult);
 
-    // Get cars list (with branch scope)
+    // Get cars list
     $cars = [];
     if ($user_role === 'admin') {
         $query = "SELECT c.*, u.name as owner_name 
@@ -46,7 +60,7 @@
                   ORDER BY id DESC";
     }
 
-    // Load car schedules (active + upcoming) for status display
+    // Load car schedules
     $schedules_map = [];
     $schedQuery = "SELECT cs.car_id, cs.start_date, cs.end_date, cs.reason
                    FROM car_schedules cs
@@ -61,15 +75,12 @@
 
     function getScheduleState($car_id, $schedules_map) {
         if (!isset($schedules_map[$car_id])) return null;
-
         $todayTs = strtotime(date('Y-m-d'));
         $active = null;
         $upcoming = null;
-
         foreach ($schedules_map[$car_id] as $sched) {
             $startTs = strtotime($sched['start_date']);
             $endTs   = strtotime($sched['end_date']);
-
             if ($todayTs >= $startTs && $todayTs <= $endTs) {
                 $active = $sched;
                 break;
@@ -80,13 +91,12 @@
                 }
             }
         }
-
         if ($active) return ['state' => 'active', 'schedule' => $active];
         if ($upcoming) return ['state' => 'upcoming', 'schedule' => $upcoming];
         return null;
     }
 
-    // Fetch operators list (admin only)
+    // Fetch operators list
     $operators_list = [];
     if ($user_role === 'admin') {
         $opQuery = "SELECT id, name, email FROM users WHERE role = 'operator'" . branchScopeSql() . " ORDER BY name ASC";
@@ -98,28 +108,23 @@
         }
     }
 
-    // Fetch branches list
+    // Fetch branches list & create a map for O(1) lookup
     $branches_list = [];
+    $branch_names_map = [];
     $brQuery = "SELECT id, name FROM branches WHERE is_active = 1 ORDER BY name ASC";
     $brResult = mysqli_query($conn, $brQuery);
     if ($brResult) {
         while ($brRow = mysqli_fetch_assoc($brResult)) {
             $branches_list[] = $brRow;
-        }
-    }
-
-    if (!function_exists('branchNameById')) {
-        function branchNameById($id, $list) {
-            foreach ($list as $b) {
-                if ((int)$b['id'] === (int)$id) return $b['name'];
-            }
-            return null;
+            $branch_names_map[$brRow['id']] = $brRow['name'];
         }
     }
 
     $result = mysqli_query($conn, $query);
     if ($result) {
         while ($row = mysqli_fetch_assoc($result)) { $cars[] = $row; }
+    } else {
+        die("Error loading cars: " . mysqli_error($conn));
     }
     ?>
 
@@ -127,7 +132,7 @@
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <style>
+          <style>
         :root {
             --brand-yellow: #ffcc00;
             --brand-yellow-soft: rgba(255, 204, 0, 0.12);
@@ -162,13 +167,6 @@
 
         .text-brand-yellow { color: #b38a00 !important; }
         .bg-brand-yellow { background: var(--brand-yellow-soft) !important; }
-
-        .car-img-container {
-            width: 60px; height: 60px; border-radius: 8px; overflow: hidden;
-            background: #f1f5f9; display: flex; align-items: center; justify-content: center; border: 1px solid #e2e8f0;
-        }
-        .car-img-container img { width: 100%; height: 100%; object-fit: cover; }
-        .badge-active { background-color: #2563eb; color: #ffffff; }
 
         .card {
             border-radius: 16px !important;
@@ -216,35 +214,6 @@
             border-color: var(--brand-yellow) !important;
             color: var(--brand-black) !important;
             background-color: #f8fafc;
-        }
-
-        #fleetTable .btn-light {
-            background-color: #f1f5f9 !important;
-            border: 1px solid #cbd5e1 !important;
-            color: #334155 !important;
-            border-radius: 8px !important;
-            padding: 6px 10px !important;
-        }
-        #fleetTable .btn-light:hover {
-            background-color: #e2e8f0 !important;
-            color: #0f172a !important;
-            border-color: #94a3b8 !important;
-            transform: translateY(-1px);
-        }
-
-        #fleetTable .btn-outline-danger {
-            background-color: #fef2f2 !important;
-            border: 1px solid #fca5a5 !important;
-            color: #dc2626 !important;
-            border-radius: 8px !important;
-            padding: 6px 10px !important;
-        }
-        #fleetTable .btn-outline-danger:hover {
-            background-color: #dc2626 !important;
-            border-color: #dc2626 !important;
-            color: #ffffff !important;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25) !important;
         }
 
         .text-primary { color: #b38a00 !important; }
@@ -343,16 +312,6 @@
             vertical-align: middle;
         }
 
-        .action-scroll {
-            display: flex; justify-content: flex-end;
-            overflow-x: auto; max-width: 100%;
-            -webkit-overflow-scrolling: touch;
-        }
-        .action-scroll .btn-group {
-            display: inline-flex; flex-wrap: nowrap; gap: 6px;
-            min-width: max-content;
-        }
-
         .custom-control-bar {
             padding: 8px;
             border: 1px solid #e2e8f0 !important;
@@ -441,20 +400,59 @@
         }
         .theme-toggle-btn i { font-size: 1rem; color: #64748b; }
 
-        .modal-content {
-            border-radius: 16px !important;
-            border: 1px solid #e2e8f0;
-            background-color: #ffffff;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        /* ============================================================
+           MODAL SPACING & LAYOUT FIXES
+           ============================================================ */
+        
+        .modal-dialog {
+            display: flex !important;
+            align-items: center !important;
+            min-height: calc(100% - 3.5rem) !important;
+            margin: 1.75rem auto !important;
+            max-width: 800px !important;
         }
 
-        .modal-header { border-bottom: 1px solid #f1f5f9; padding: 1.25rem 1.5rem; }
-        .modal-title { font-weight: 700; color: var(--brand-ink); }
-        .modal-body { padding: 1.5rem; }
+        .modal-content {
+            border-radius: 16px !important;
+            border: 1px solid #e2e8f0 !important;
+            background-color: #ffffff !important;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+            width: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+            max-height: calc(100vh - 3.5rem) !important;
+        }
+
+        .modal-header {
+            border-bottom: 1px solid #f1f5f9 !important;
+            padding: 1.25rem 1.5rem !important;
+            flex-shrink: 0 !important;
+        }
+        .modal-title { 
+            font-weight: 700 !important; 
+            color: var(--brand-ink) !important; 
+        }
+
+        .modal-body {
+            padding: 1.5rem !important;
+            overflow-y: auto !important;
+            flex: 1 1 auto !important;
+            background-color: #ffffff !important;
+        }
+
         .modal-footer {
-            border-top: 1px solid #f1f5f9;
-            padding: 1rem 1.5rem;
-            display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem;
+            border-top: 1px solid #f1f5f9 !important;
+            padding: 1rem 1.5rem !important;
+            display: flex !important; 
+            align-items: center !important; 
+            justify-content: flex-end !important; 
+            gap: 0.75rem !important;
+            flex-shrink: 0 !important;
+            background-color: #ffffff !important;
+        }
+        .modal-footer .btn { 
+            min-width: 120px; 
+            margin: 0 !important; 
         }
 
         #dropzoneContainer,
@@ -551,447 +549,101 @@
             }
             #fleetTable td:first-child::before { display: none; }
 
-            .car-img-container { width: 48px; height: 48px; flex-shrink: 0; }
-
             #fleetTable td { text-align: right !important; }
             #fleetTable td * { text-align: right !important; }
             #fleetTable td:first-child * { text-align: left !important; }
-
-            .badge { margin-top: 0; }
-            .btn-group {
-                display: flex; gap: 6px;
-                justify-content: flex-end;
-                width: auto;
-            }
         }
 
+        /* =========================================
+           ACTION BUTTONS
+           ========================================= */
+        .action-btn-group {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: flex-end;
+        }
+        
+        .action-btn-group .btn {
+            width: 36px !important;
+            height: 36px !important;
+            min-width: 36px !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            line-height: 1 !important;
+            border-radius: 8px !important;
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1 !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .action-btn-group .btn i {
+            font-size: 15px !important;
+            margin: 0 !important;
+        }
+
+        .action-btn-group .btn .action-icon { color: #334155 !important; }
+        .action-btn-group .btn .action-icon-danger { color: #ef4444 !important; }
+
+        .action-btn-group .btn:hover {
+            border-color: var(--brand-yellow) !important;
+            background-color: #f8fafc;
+            transform: translateY(-1px);
+        }
+
+        /* =========================================
+           DARK MODE OVERRIDES
+           ========================================= */
         body.dark-mode { background-color: var(--brand-black) !important; color: #f1f5f9 !important; }
         body.dark-mode .main-content { background-color: var(--brand-black) !important; }
-
-        body.dark-mode header, body.dark-mode nav, body.dark-mode .navbar {
-            background-color: var(--brand-card-bg-dark) !important;
-            border-color: var(--brand-border-dark) !important;
-            color: #f1f5f9 !important;
-        }
-
-        body.dark-mode footer, body.dark-mode .footer,
-        body.dark-mode footer.bg-white, body.dark-mode div.bg-white:has(> footer),
-        body.dark-mode [class*="footer"] {
-            background-color: var(--brand-black) !important;
-            border-color: var(--brand-border-dark) !important;
-            color: #cbd5e1 !important;
-        }
-
-        body.dark-mode .dropdown-toggle, body.dark-mode .user-pill,
-        body.dark-mode .profile-pill, body.dark-mode [data-bs-toggle="dropdown"],
-        body.dark-mode .btn-group > .btn.bg-white, body.dark-mode .btn.bg-white {
-            background-color: var(--brand-card-bg-dark) !important;
-            border-color: var(--brand-border-dark) !important;
-            color: #ffffff !important;
-        }
-
-        body.dark-mode .card, body.dark-mode .stat-card,
-        body.dark-mode .modal-content, body.dark-mode .dropdown-menu {
-            background-color: var(--brand-card-bg-dark) !important;
-            border-color: var(--brand-border-dark) !important;
-            color: #f1f5f9 !important;
-        }
-
+        body.dark-mode header, body.dark-mode nav, body.dark-mode .navbar { background-color: var(--brand-card-bg-dark) !important; border-color: var(--brand-border-dark) !important; color: #f1f5f9 !important; }
+        body.dark-mode footer, body.dark-mode .footer { background-color: var(--brand-black) !important; border-color: var(--brand-border-dark) !important; color: #cbd5e1 !important; }
+        body.dark-mode .dropdown-toggle, body.dark-mode .user-pill, body.dark-mode .profile-pill, body.dark-mode [data-bs-toggle="dropdown"], body.dark-mode .btn-group > .btn.bg-white, body.dark-mode .btn.bg-white { background-color: var(--brand-card-bg-dark) !important; border-color: var(--brand-border-dark) !important; color: #ffffff !important; }
+        body.dark-mode .card, body.dark-mode .stat-card, body.dark-mode .modal-content, body.dark-mode .dropdown-menu { background-color: var(--brand-card-bg-dark) !important; border-color: var(--brand-border-dark) !important; color: #f1f5f9 !important; }
         body.dark-mode .dropdown-item { color: #e2e8f0 !important; }
         body.dark-mode .dropdown-item:hover { background-color: #27272a !important; color: #ffffff !important; }
         body.dark-mode .stat-card:hover { border-color: var(--brand-yellow) !important; box-shadow: 0 10px 24px rgba(255, 204, 0, 0.12) !important; }
-
-        body.dark-mode .stat-value, body.dark-mode .fw-bold,
-        body.dark-mode h1, body.dark-mode h2, body.dark-mode h3,
-        body.dark-mode h4, body.dark-mode h5, body.dark-mode h6,
-        body.dark-mode .text-dark, body.dark-mode .modal-title,
-        body.dark-mode .form-section-title { color: #ffffff !important; }
-
-        body.dark-mode .stat-label, body.dark-mode .text-muted,
-        body.dark-mode .text-secondary, body.dark-mode .form-label { color: #cbd5e1 !important; }
-
-        body.dark-mode .custom-control-bar {
-            background: var(--brand-card-bg-dark) !important;
-            border-color: var(--brand-border-dark) !important;
-        }
-
+        body.dark-mode .stat-value, body.dark-mode .fw-bold, body.dark-mode h1, body.dark-mode h2, body.dark-mode h3, body.dark-mode h4, body.dark-mode h5, body.dark-mode h6, body.dark-mode .text-dark, body.dark-mode .modal-title, body.dark-mode .form-section-title { color: #ffffff !important; }
+        body.dark-mode .stat-label, body.dark-mode .text-muted, body.dark-mode .text-secondary, body.dark-mode .form-label { color: #cbd5e1 !important; }
+        body.dark-mode .custom-control-bar { background: var(--brand-card-bg-dark) !important; border-color: var(--brand-border-dark) !important; }
         body.dark-mode .entry-limiter-wrapper { color: #cbd5e1; }
-        body.dark-mode .entry-limiter-select {
-            background-color: #0d0d0d; color: #f1f5f9;
-            border-color: var(--brand-border-dark);
-            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23cbd5e1' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
-        }
-
-        body.dark-mode .search-input-wrapper input {
-            background-color: #0d0d0d !important;
-            color: #ffffff !important;
-            border-color: var(--brand-border-dark) !important;
-        }
+        body.dark-mode .entry-limiter-select { background-color: #0d0d0d; color: #f1f5f9; border-color: var(--brand-border-dark); background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23cbd5e1' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e"); }
+        body.dark-mode .search-input-wrapper input { background-color: #0d0d0d !important; color: #ffffff !important; border-color: var(--brand-border-dark) !important; }
         body.dark-mode .search-input-wrapper input::placeholder { color: #64748b; }
-
         body.dark-mode #fleetTable { color: #f1f5f9 !important; background-color: var(--brand-card-bg-dark) !important; }
-
-        body.dark-mode #fleetTable thead th, body.dark-mode table thead.bg-light th {
-            background-color: #1a1600 !important;
-            color: var(--brand-yellow) !important;
-            border-bottom: 2px solid var(--brand-border-dark) !important;
-        }
-
+        body.dark-mode #fleetTable thead th, body.dark-mode table thead.bg-light th { background-color: #1a1600 !important; color: var(--brand-yellow) !important; border-bottom: 2px solid var(--brand-border-dark) !important; }
         body.dark-mode #fleetTable tbody tr { background-color: var(--brand-row-bg-dark) !important; }
-        body.dark-mode #fleetTable td {
-            background-color: var(--brand-row-bg-dark) !important;
-            border-bottom: 1px solid var(--brand-border-dark) !important;
-            color: #e2e8f0 !important;
-        }
-        body.dark-mode .table-hover > tbody > tr:hover > * {
-            background-color: #262626 !important;
-            color: #ffffff !important;
-        }
-
-        body.dark-mode #fleetTable .btn-outline-primary,
-        body.dark-mode #fleetTable .btn-outline-secondary,
-        body.dark-mode #fleetTable .btn-light {
-            background-color: #27272a !important;
-            border: none !important;
-            color: #e2e8f0 !important;
-            border-radius: 8px !important;
-            padding: 6px 10px !important;
-            transition: all 0.2s ease !important;
-        }
-
-        body.dark-mode #fleetTable .btn-outline-primary:hover,
-        body.dark-mode #fleetTable .btn-outline-secondary:hover,
-        body.dark-mode #fleetTable .btn-light:hover {
-            background-color: #3f3f46 !important;
-            color: #ffffff !important;
-        }
-
-        body.dark-mode #fleetTable .btn-outline-danger,
-        body.dark-mode #fleetTable .btn-danger {
-            background-color: rgba(239, 68, 68, 0.15) !important;
-            border: none !important;
-            color: #f87171 !important;
-            border-radius: 8px !important;
-            padding: 6px 10px !important;
-            transition: all 0.2s ease !important;
-        }
-
-        body.dark-mode #fleetTable .btn-outline-danger:hover,
-        body.dark-mode #fleetTable .btn-danger:hover {
-            background-color: #ef4444 !important;
-            color: #ffffff !important;
-        }
-
-        body.dark-mode code {
-            background-color: #222222 !important;
-            color: var(--brand-yellow) !important;
-            border: 1px solid var(--brand-border-dark);
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
-
-        body.dark-mode .car-gallery-modal-trigger {
-            background-color: #0d0d0d !important;
-            border-color: var(--brand-border-dark) !important;
-        }
-
-        body.dark-mode .modal-header, body.dark-mode .modal-footer {
-            background-color: var(--brand-card-bg-dark) !important;
-            border-top-color: var(--brand-border-dark) !important;
-            border-bottom-color: var(--brand-border-dark) !important;
-        }
-
-        body.dark-mode .modal-footer .btn-secondary,
-        body.dark-mode .modal-footer .btn-white,
-        body.dark-mode .modal-footer .btn-light {
-            background-color: #27272a !important;
-            border: 1px solid var(--brand-border-dark) !important;
-            color: #f1f5f9 !important;
-        }
-
-        body.dark-mode .modal-footer .btn-secondary:hover,
-        body.dark-mode .modal-footer .btn-white:hover,
-        body.dark-mode .modal-footer .btn-light:hover {
-            background-color: #3f3f46 !important;
-            color: #ffffff !important;
-        }
-
+        body.dark-mode #fleetTable td { background-color: var(--brand-row-bg-dark) !important; border-bottom: 1px solid var(--brand-border-dark) !important; color: #e2e8f0 !important; }
+        body.dark-mode .table-hover > tbody > tr:hover > * { background-color: #262626 !important; color: #ffffff !important; }
+        body.dark-mode #fleetTable .btn-outline-primary, body.dark-mode #fleetTable .btn-outline-secondary, body.dark-mode #fleetTable .btn-light { background-color: #27272a !important; border: none !important; color: #e2e8f0 !important; border-radius: 8px !important; padding: 6px 10px !important; transition: all 0.2s ease !important; }
+        body.dark-mode #fleetTable .btn-outline-primary:hover, body.dark-mode #fleetTable .btn-outline-secondary:hover, body.dark-mode #fleetTable .btn-light:hover { background-color: #3f3f46 !important; color: #ffffff !important; }
+        body.dark-mode #fleetTable .btn-outline-danger, body.dark-mode #fleetTable .btn-danger { background-color: rgba(239, 68, 68, 0.15) !important; border: none !important; color: #f87171 !important; border-radius: 8px !important; padding: 6px 10px !important; transition: all 0.2s ease !important; }
+        body.dark-mode #fleetTable .btn-outline-danger:hover, body.dark-mode #fleetTable .btn-danger:hover { background-color: #ef4444 !important; color: #ffffff !important; }
+        body.dark-mode code { background-color: #222222 !important; color: var(--brand-yellow) !important; border: 1px solid var(--brand-border-dark); padding: 2px 6px; border-radius: 4px; }
+        body.dark-mode .car-gallery-modal-trigger { background-color: #0d0d0d !important; border-color: var(--brand-border-dark) !important; }
+        body.dark-mode .modal-header, body.dark-mode .modal-footer { background-color: var(--brand-card-bg-dark) !important; border-top-color: var(--brand-border-dark) !important; border-bottom-color: var(--brand-border-dark) !important; }
+        body.dark-mode .modal-footer .btn-secondary, body.dark-mode .modal-footer .btn-white, body.dark-mode .modal-footer .btn-light { background-color: #27272a !important; border: 1px solid var(--brand-border-dark) !important; color: #f1f5f9 !important; }
+        body.dark-mode .modal-footer .btn-secondary:hover, body.dark-mode .modal-footer .btn-white:hover, body.dark-mode .modal-footer .btn-light:hover { background-color: #3f3f46 !important; color: #ffffff !important; }
         body.dark-mode .modal-body { background-color: #0d0d0d !important; }
         body.dark-mode .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
-
-        body.dark-mode .form-control, body.dark-mode .form-select {
-            background-color: #171717 !important;
-            border-color: var(--brand-border-dark) !important;
-            color: #f8fafc !important;
-        }
+        body.dark-mode .form-control, body.dark-mode .form-select { background-color: #171717 !important; border-color: var(--brand-border-dark) !important; color: #f8fafc !important; }
         body.dark-mode .form-control::placeholder { color: #64748b !important; }
-
-        body.dark-mode #dropzoneContainer, body.dark-mode [id^="editDropzoneContainer"] {
-            background-color: #121212 !important;
-            border-color: var(--brand-border-dark) !important;
-        }
-        body.dark-mode #dropzoneContainer:hover, body.dark-mode [id^="editDropzoneContainer"]:hover {
-            border-color: var(--brand-yellow) !important;
-            background-color: rgba(255, 204, 0, 0.05) !important;
-        }
-
-        body.dark-mode .btn-white {
-            background-color: var(--brand-card-bg-dark) !important;
-            border-color: var(--brand-border-dark) !important;
-            color: #f1f5f9 !important;
-        }
-        body.dark-mode .btn-white:hover {
-            border-color: var(--brand-yellow) !important;
-            color: var(--brand-yellow) !important;
-        }
-
+        body.dark-mode #dropzoneContainer, body.dark-mode [id^="editDropzoneContainer"] { background-color: #121212 !important; border-color: var(--brand-border-dark) !important; }
+        body.dark-mode #dropzoneContainer:hover, body.dark-mode [id^="editDropzoneContainer"]:hover { border-color: var(--brand-yellow) !important; background-color: rgba(255, 204, 0, 0.05) !important; }
+        body.dark-mode .btn-white { background-color: var(--brand-card-bg-dark) !important; border-color: var(--brand-border-dark) !important; color: #f1f5f9 !important; }
+        body.dark-mode .btn-white:hover { border-color: var(--brand-yellow) !important; color: var(--brand-yellow) !important; }
         body.dark-mode .text-brand-yellow, body.dark-mode .text-primary { color: var(--brand-yellow) !important; }
-
-        body.dark-mode .icon-shape, body.dark-mode .bg-brand-yellow,
-        body.dark-mode .stat-icon.bg-primary.bg-opacity-10 {
-            background: rgba(255, 204, 0, 0.15) !important;
-            color: var(--brand-yellow) !important;
-        }
-
-        body.dark-mode .theme-toggle-btn {
-            background: var(--brand-card-bg-dark);
-            border-color: var(--brand-border-dark);
-        }
+        body.dark-mode .icon-shape, body.dark-mode .bg-brand-yellow, body.dark-mode .stat-icon.bg-primary.bg-opacity-10 { background: rgba(255, 204, 0, 0.15) !important; color: var(--brand-yellow) !important; }
+        body.dark-mode .theme-toggle-btn { background: var(--brand-card-bg-dark); border-color: var(--brand-border-dark); }
         body.dark-mode .theme-toggle-btn i { color: var(--brand-yellow); }
-
-        @media (max-width: 991.98px) {
-            body.dark-mode #fleetTable tr {
-                background: var(--brand-card-bg-dark) !important;
-                border-color: var(--brand-border-dark);
-            }
-            body.dark-mode #fleetTable td::before { color: #cbd5e1; }
-            body.dark-mode #fleetTable td:first-child {
-                border-bottom-color: var(--brand-border-dark) !important;
-            }
-        }
-
-        .form-control:focus, .form-select:focus,
-        .search-input-wrapper input:focus, .entry-limiter-select:focus {
-            border-color: #000000 !important;
-            box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1) !important;
-            outline: none !important;
-        }
-
-        body.dark-mode .form-control:focus, body.dark-mode .form-select:focus,
-        body.dark-mode .search-input-wrapper input:focus, body.dark-mode .entry-limiter-select:focus {
-            border-color: var(--brand-yellow) !important;
-            box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.25) !important;
-            outline: none !important;
-        }
-
-        header, nav, .navbar, .main-content > div:first-child {
-            width: 100% !important;
-            max-width: 100% !important;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
-            padding-left: 0.75rem !important;
-            padding-right: 0.75rem !important;
-            border-radius: 0 !important;
-        }
-
-        .main-content {
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-            padding-top: 0 !important;
-        }
-
-        .modal-dialog {
-            display: flex !important;
-            align-items: center !important;
-            min-height: calc(100% - 1.75rem) !important;
-            margin: 0.875rem auto !important;
-        }
-
-        .modal-content {
-            display: flex !important;
-            flex-direction: column !important;
-            width: 90% !important;
-            top: 0;
-            left: 5%;
-            position: relative !important;
-            overflow: hidden !important;
-        }
-
-        .modal-body {
-            border-radius: 10px;
-            margin: 10px;
-            flex: 1 1 auto !important;
-            overflow-y: auto !important;
-        }
-
-        .modal-footer {
-            position: relative !important;
-            z-index: 10 !important;
-            width: 100% !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            gap: 12px !important;
-            padding: 1rem 1.5rem !important;
-            margin-top: 0 !important;
-        }
-
-        .modal-footer .btn { min-width: 120px; margin: 0 !important; }
-
         body.dark-mode .form-label { color: #f1f5f9 !important; font-weight: 600 !important; }
-
-        body.dark-mode .form-control, body.dark-mode .form-select {
-            background-color: #1a1a1a !important;
-            border-color: #3f3f46 !important;
-            color: #ffffff !important;
-            font-size: 0.9rem !important;
-        }
-
-        body.dark-mode .form-control:focus, body.dark-mode .form-select:focus {
-            background-color: #141414 !important;
-            border-color: var(--brand-yellow) !important;
-            color: #ffffff !important;
-            box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.25) !important;
-        }
-
+        body.dark-mode .form-control, body.dark-mode .form-select { background-color: #1a1a1a !important; border-color: #3f3f46 !important; color: #ffffff !important; font-size: 0.9rem !important; }
+        body.dark-mode .form-control:focus, body.dark-mode .form-select:focus { background-color: #141414 !important; border-color: var(--brand-yellow) !important; color: #ffffff !important; box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.25) !important; }
         body.dark-mode input, body.dark-mode select, body.dark-mode textarea { color: #ffffff !important; }
-
-        .alert-info-custom, .badge-hint, .main-photo-hint {
-            background-color: var(--brand-yellow-soft) !important;
-            color: #856404 !important;
-            border: 1px solid #f1e6bc !important;
-            border-radius: 50rem !important;
-            padding: 0.35rem 0.85rem !important;
-            font-size: 0.75rem !important;
-            font-weight: 600 !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            gap: 0.35rem !important;
-        }
-
-        body.dark-mode .alert-info-custom, body.dark-mode .badge-hint,
-        body.dark-mode .main-photo-hint {
-            background-color: rgba(255, 204, 0, 0.1) !important;
-            color: var(--brand-yellow) !important;
-            border-color: rgba(255, 204, 0, 0.25) !important;
-        }
-
-        .vehicle-img-btn {
-            width: 90px; height: 65px;
-            border-radius: 10px;
-            overflow: hidden;
-            background: #f8fafc;
-            border: 2px solid #e2e8f0 !important;
-            cursor: pointer;
-            transition: all 0.25s ease-in-out;
-        }
-
-        .vehicle-img-btn:hover {
-            border-color: #0d6efd !important;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(13, 110, 253, 0.25) !important;
-        }
-
-        .vehicle-thumb-img { object-fit: cover; transition: transform 0.3s ease; }
-        .vehicle-img-btn:hover .vehicle-thumb-img { transform: scale(1.08); }
-
-        .gallery-hover-overlay {
-            position: absolute; inset: 0;
-            background: rgba(15, 23, 42, 0.65);
-            backdrop-filter: blur(2px);
-            opacity: 0;
-            transition: opacity 0.2s ease-in-out;
-            z-index: 2;
-        }
-
-        .vehicle-img-btn:hover .gallery-hover-overlay { opacity: 1; }
-
-        .gallery-badge { z-index: 3; transition: opacity 0.2s ease; }
-        .vehicle-img-btn:hover .gallery-badge { opacity: 0; }
-
-        .btn-white { background-color: #fff; }
-        .btn-white:hover { background-color: #f8fafc; }
-
-        .car-title-text, .rate-title-text, .ext-rate-value { color: #0f172a; }
-
-        .owner-info-text { color: #334155; }
-        .owner-info-text i { color: #64748b; }
-
-        .specs-text-group, .ext-rate-label { color: #64748b; }
-
-        .vehicle-type-badge {
-            background-color: #f8fafc;
-            color: #475569;
-            border-color: #cbd5e1 !important;
-        }
-
-        .plate-number-badge {
-            background-color: #f8fafc;
-            color: #0f172a;
-            border-color: #cbd5e1 !important;
-        }
-
-        .status-badge-available {
-            background-color: #dcfce7;
-            color: #15803d;
-            border: 1px solid #bbf7d0;
-        }
-        .status-badge-active {
-            background-color: var(--brand-yellow-soft);
-            color: #b38a00;
-            border: 1px solid #fef08a;
-        }
-        .status-badge-maintenance {
-            background-color: #fee2e2;
-            color: #b91c1c;
-            border: 1px solid #fca5a5;
-        }
-        .status-badge-default {
-            background-color: #f1f5f9;
-            color: #475569;
-            border: 1px solid #cbd5e1;
-        }
-
-        body.dark-mode .car-title-text, body.dark-mode .rate-title-text,
-        body.dark-mode .ext-rate-value { color: #f8fafc !important; }
-
-        body.dark-mode .owner-info-text { color: #e2e8f0 !important; }
-        body.dark-mode .owner-info-text i { color: #94a3b8 !important; }
-
-        body.dark-mode .specs-text-group, body.dark-mode .ext-rate-label { color: #cbd5e1 !important; }
-
-        body.dark-mode .vehicle-type-badge {
-            background-color: #1a1a1a !important;
-            color: #e2e8f0 !important;
-            border-color: var(--brand-border-dark) !important;
-        }
-
-        body.dark-mode .plate-number-badge {
-            background-color: #111827 !important;
-            color: var(--brand-yellow) !important;
-            border-color: var(--brand-border-dark) !important;
-        }
-
-        body.dark-mode .status-badge-available {
-            background-color: rgba(34, 197, 94, 0.2) !important;
-            color: #4ade80 !important;
-            border: 1px solid rgba(74, 222, 128, 0.4) !important;
-        }
-        body.dark-mode .status-badge-active {
-            background-color: rgba(255, 204, 0, 0.2) !important;
-            color: #ffe066 !important;
-            border: 1px solid rgba(255, 204, 0, 0.4) !important;
-        }
-        body.dark-mode .status-badge-maintenance {
-            background-color: rgba(239, 68, 68, 0.2) !important;
-            color: #f87171 !important;
-            border: 1px solid rgba(248, 113, 113, 0.4) !important;
-        }
-        body.dark-mode .status-badge-default {
-            background-color: rgba(148, 163, 184, 0.2) !important;
-            color: #cbd5e1 !important;
-            border: 1px solid rgba(203, 213, 225, 0.3) !important;
-        }
 
         .vehicle-img-btn {
             width: 100px !important;
@@ -1000,6 +652,15 @@
             border-radius: 10px;
             overflow: hidden;
             background-color: #0f172a;
+            border: 2px solid #e2e8f0 !important;
+            cursor: pointer;
+            transition: all 0.25s ease-in-out;
+        }
+
+        .vehicle-img-btn:hover {
+            border-color: var(--brand-yellow) !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 204, 0, 0.25) !important;
         }
 
         .vehicle-thumb-img {
@@ -1036,16 +697,45 @@
         }
 
         .gallery-badge i { font-size: 10px; }
-    </style>
 
-    <script>
-        (function () {
-            const stored = localStorage.getItem('instacar-admin-theme');
-            if (stored === 'dark') {
-                document.body.classList.add('dark-mode');
-            }
-        })();
-    </script>
+        .car-title-text, .rate-title-text, .ext-rate-value { color: #0f172a; }
+        .owner-info-text { color: #334155; }
+        .owner-info-text i { color: #64748b; }
+        .specs-text-group, .ext-rate-label { color: #64748b; }
+
+        .vehicle-type-badge { background-color: #f8fafc; color: #475569; border-color: #cbd5e1 !important; }
+        .plate-number-badge { background-color: #f8fafc; color: #0f172a; border-color: #cbd5e1 !important; }
+
+        .status-badge-available { background-color: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+        .status-badge-active { background-color: var(--brand-yellow-soft); color: #b38a00; border: 1px solid #fef08a; }
+        .status-badge-maintenance { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+        .status-badge-default { background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+        body.dark-mode .car-title-text, body.dark-mode .rate-title-text, body.dark-mode .ext-rate-value { color: #f8fafc !important; }
+        body.dark-mode .owner-info-text { color: #e2e8f0 !important; }
+        body.dark-mode .owner-info-text i { color: #94a3b8 !important; }
+        body.dark-mode .specs-text-group, body.dark-mode .ext-rate-label { color: #cbd5e1 !important; }
+        body.dark-mode .vehicle-type-badge { background-color: #1a1a1a !important; color: #e2e8f0 !important; border-color: var(--brand-border-dark) !important; }
+        body.dark-mode .plate-number-badge { background-color: #111827 !important; color: var(--brand-yellow) !important; border-color: var(--brand-border-dark) !important; }
+        body.dark-mode .status-badge-available { background-color: rgba(34, 197, 94, 0.2) !important; color: #4ade80 !important; border: 1px solid rgba(74, 222, 128, 0.4) !important; }
+        body.dark-mode .status-badge-active { background-color: rgba(255, 204, 0, 0.2) !important; color: #ffe066 !important; border: 1px solid rgba(255, 204, 0, 0.4) !important; }
+        body.dark-mode .status-badge-maintenance { background-color: rgba(239, 68, 68, 0.2) !important; color: #f87171 !important; border: 1px solid rgba(248, 113, 113, 0.4) !important; }
+        body.dark-mode .status-badge-default { background-color: rgba(148, 163, 184, 0.2) !important; color: #cbd5e1 !important; border: 1px solid rgba(203, 213, 225, 0.3) !important; }
+
+        /* Dark Mode for Action Buttons */
+        body.dark-mode .action-btn-group .btn {
+            background-color: #1a1a1a !important;
+            border-color: #3f3f46 !important;
+        }
+        
+        body.dark-mode .action-btn-group .btn .action-icon { color: #f1f5f9 !important; }
+        body.dark-mode .action-btn-group .btn .action-icon-danger { color: #f87171 !important; }
+
+        body.dark-mode .action-btn-group .btn:hover {
+            border-color: var(--brand-yellow) !important;
+            background-color: #27272a !important;
+        }
+    </style>
 
     <div class="container-fluid">
         <div class="row">
@@ -1175,20 +865,21 @@
                                                             $image_src = $image_array[0];
                                                         }
                                                         $extra_count = count($image_array) - 1;
-                                                        $comma_separated_images = implode(',', $image_array);
+                                                        $json_images = htmlspecialchars(json_encode($image_array), ENT_QUOTES, 'UTF-8');
                                                     ?>
                                                     
                                                     <button type="button" 
                                                             class="btn p-0 border-0 me-3 position-relative car-gallery-modal-trigger vehicle-img-btn shadow-sm" 
                                                             data-car-id="<?= $car['id'] ?>"
                                                             data-car-name="<?= htmlspecialchars(($car['brand'] ?? '') . ' ' . ($car['model'] ?? '')) ?>"
-                                                            data-images="<?= htmlspecialchars($comma_separated_images) ?>"
+                                                            data-images='<?= $json_images ?>'
                                                             title="Click to view full photo gallery">
                                                         
                                                         <img id="master_car_img_<?= $car['id'] ?>" 
-                                                            src="../../public/assets/images/cars/<?= htmlspecialchars($image_src) ?>" 
+                                                            src="<?= $carsImgBaseUrl . htmlspecialchars($image_src) ?>" 
                                                             alt="Car Thumbnail" 
-                                                            class="w-100 h-100 vehicle-thumb-img">
+                                                            class="w-100 h-100 vehicle-thumb-img"
+                                                            onerror="this.onerror=null; this.src='<?= $carsImgBaseUrl ?>default.png'">
                                                         
                                                         <div class="gallery-hover-overlay d-flex flex-column align-items-center justify-content-center text-white">
                                                             <i class="bi bi-arrows-angle-expand mb-0.5"></i>
@@ -1221,7 +912,7 @@
 
                                             <td data-title="Branch">
                                                 <?php 
-                                                    $bName = branchNameById($car['branch_id'] ?? null, $branches_list);
+                                                    $bName = $branch_names_map[$car['branch_id']] ?? null;
                                                     if ($bName) {
                                                         echo '<span class="badge vehicle-type-badge border fw-semibold" style="font-size: 11px;"><i class="bi bi-shop me-1"></i>' . htmlspecialchars($bName) . '</span>';
                                                     } else {
@@ -1266,15 +957,15 @@
                                                     </div>
                                                     <div class="d-flex justify-content-between align-items-center border-bottom pb-1 gap-2">
                                                         <span class="ext-rate-label">7-10 hrs:</span>
-                                                        <span class="fw-bold ext-rate-value">₱<?= number_format($car['ext_price_7_10'] ?? 0, 0) ?>/hr</span>
+                                                        <span class="fw-bold ext-rate-value">₱<?= number_format($car['ext_price_7_10'] ?? 0, 0) ?></span>
                                                     </div>
                                                     <div class="d-flex justify-content-between align-items-center border-bottom pb-1 gap-2">
                                                         <span class="ext-rate-label">11-12 hrs:</span>
-                                                        <span class="fw-bold ext-rate-value">₱<?= number_format($car['ext_price_11_12'] ?? 0, 0) ?>/hr</span>
+                                                        <span class="fw-bold ext-rate-value">₱<?= number_format($car['ext_price_11_12'] ?? 0, 0) ?></span>
                                                     </div>
                                                     <div class="d-flex justify-content-between align-items-center gap-2">
                                                         <span class="ext-rate-label">13-24 hrs:</span>
-                                                        <span class="fw-bold ext-rate-value">₱<?= number_format($car['ext_price_13_24'] ?? 0, 0) ?>/hr</span>
+                                                        <span class="fw-bold ext-rate-value">₱<?= number_format($car['ext_price_13_24'] ?? 0, 0) ?></span>
                                                     </div>
                                                 </div>
                                             </td>
@@ -1328,13 +1019,22 @@
 
                                             <?php if ($user_role === 'admin'): ?>
                                             <td class="text-end pe-4" data-title="Actions">
-                                                <div class="d-inline-flex gap-2">
-                                                    <button class="btn btn-sm btn-white border border-dark rounded-3 shadow-sm" data-bs-toggle="modal" data-bs-target="#editCarModal<?= $car['id'] ?>" title="Edit Vehicle Details">
-                                                        <i class="bi bi-pencil-square text-dark"></i>
+                                                <div class="action-btn-group">
+                                                    <!-- Edit Button -->
+                                                    <button type="button" class="btn btn-sm btn-white border shadow-sm" data-bs-toggle="modal" data-bs-target="#editCarModal<?= $car['id'] ?>" title="Edit Vehicle Details">
+                                                        <i class="bi bi-pencil-square action-icon"></i>
                                                     </button>
-                                                    <a href="process/car_actions.php?delete=<?= $car['id'] ?>" class="btn btn-sm btn-white border border-dark text-danger rounded-3 shadow-sm" onclick="return confirm('Are you sure you want to completely remove this vehicle listing?')" title="Delete Vehicle">
-                                                        <i class="bi bi-trash"></i>
-                                                    </a>
+                                                    
+                                                    <!-- Delete Button (Triggers hidden form) -->
+                                                    <button type="button" class="btn btn-sm btn-white border shadow-sm" onclick="document.getElementById('deleteCarForm<?= $car['id'] ?>').submit();" title="Delete Vehicle">
+                                                        <i class="bi bi-trash action-icon-danger"></i>
+                                                    </button>
+                                                    
+                                                    <!-- Hidden Form for Delete -->
+                                                    <form id="deleteCarForm<?= $car['id'] ?>" action="process/car_actions.php" method="POST" style="display:none;" onsubmit="return confirm('Are you sure you want to completely remove this vehicle listing?')">
+                                                        <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                                        <input type="hidden" name="delete_car" value="<?= $car['id'] ?>">
+                                                    </form>
                                                 </div>
                                             </td>
                                             <?php endif; ?>
@@ -1394,6 +1094,7 @@
     <div class="modal fade" id="addCarModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-xl-custom modal-dialog-centered">
             <form action="process/car_actions.php" method="POST" enctype="multipart/form-data" class="modal-content border-0 shadow-lg rounded-4" id="vehicleRegisterForm">
+                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                 <div class="modal-header border-0 pb-0 px-4 pt-4">
                     <h5 class="fw-bold mb-0">Register New Vehicle</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -1534,48 +1235,48 @@
                         <div class="col-12"><hr class="my-2"></div>
                         <div class="col-12"><h6 class="fw-bold text-muted mb-1">Base Tier Tariffs & Shares</h6></div>
 
-                        <div class="col-md-6">
+                       <div class="col-md-6">
                             <label class="form-label small fw-bold">Price per 10 Hrs (₱)</label>
-                            <input type="number" name="price_10_hours" class="form-control" placeholder="0.00" required>
+                            <input type="text" name="price_10_hours" class="form-control" placeholder="0" inputmode="numeric" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small fw-bold text-success">Operator Share 10 Hrs (₱)</label>
-                            <input type="number" name="operator_10_hours" class="form-control text-success fw-bold" placeholder="0.00" required>
+                            <input type="text" name="operator_10_hours" class="form-control text-success fw-bold" placeholder="0" inputmode="numeric" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small fw-bold">Price per 12 Hrs (₱)</label>
-                            <input type="number" name="price_12_hours" class="form-control" placeholder="0.00" required>
+                            <input type="text" name="price_12_hours" class="form-control" placeholder="0" inputmode="numeric" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small fw-bold text-success">Operator Share 12 Hrs (₱)</label>
-                            <input type="number" name="operator_12_hours" class="form-control text-success fw-bold" placeholder="0.00" required>
+                            <input type="text" name="operator_12_hours" class="form-control text-success fw-bold" placeholder="0" inputmode="numeric" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small fw-bold">Price per 24 Hrs (₱)</label>
-                            <input type="number" name="price_24_hours" class="form-control" placeholder="0.00" required>
+                            <input type="text" name="price_24_hours" class="form-control" placeholder="0" inputmode="numeric" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small fw-bold text-success">Operator Share 24 Hrs (₱)</label>
-                            <input type="number" name="operator_24_hours" class="form-control text-success fw-bold" placeholder="0.00" required>
+                            <input type="text" name="operator_24_hours" class="form-control text-success fw-bold" placeholder="0" inputmode="numeric" required>
                         </div>
 
                         <div class="col-12"><hr class="my-2"></div>
                         <div class="col-12"><h6 class="fw-bold text-danger mb-1">Hourly Overtime Extensions</h6></div>
                         <div class="col-md-3 col-6">
                             <label class="form-label small fw-bold">1-6 Hours (₱/Hr)</label>
-                            <input type="number" name="ext_price_1_6" class="form-control" placeholder="0.00" required>
+                            <input type="text" name="ext_price_1_6" class="form-control" placeholder="0" inputmode="numeric" required>
                         </div>
                         <div class="col-md-3 col-6">
-                            <label class="form-label small fw-bold">7-10 Hours (₱/Hr)</label>
-                            <input type="number" name="ext_price_7_10" class="form-control" placeholder="0.00" required>
+                            <label class="form-label small fw-bold">7-10 Hours (₱)</label>
+                            <input type="text" name="ext_price_7_10" class="form-control" placeholder="0" inputmode="numeric" required>
                         </div>
                         <div class="col-md-3 col-6">
-                            <label class="form-label small fw-bold">11-12 Hours (₱/Hr)</label>
-                            <input type="number" name="ext_price_11_12" class="form-control" placeholder="0" required>
+                            <label class="form-label small fw-bold">11-12 Hours (₱)</label>
+                            <input type="text" name="ext_price_11_12" class="form-control" placeholder="0" inputmode="numeric" required>
                         </div>
                         <div class="col-md-3 col-6">
-                            <label class="form-label small fw-bold">13-24 Hours (₱/Hr)</label>
-                            <input type="number" name="ext_price_13_24" class="form-control" placeholder="0.00" required>
+                            <label class="form-label small fw-bold">13-24 Hours (₱)</label>
+                            <input type="text" name="ext_price_13_24" class="form-control" placeholder="0" inputmode="numeric" required>
                         </div>
                     </div>
                 </div>
@@ -1593,15 +1294,16 @@
 <div class="modal fade" id="editCarModal<?= $car['id'] ?>" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-xl-custom modal-dialog-centered">
         <form action="process/car_actions.php" method="POST" enctype="multipart/form-data" class="modal-content border-0 shadow-lg rounded-4" id="vehicleEditForm<?= $car['id'] ?>">
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+            <input type="hidden" name="update_car" value="1">
+            <input type="hidden" name="id" value="<?= $car['id'] ?>">
+
             <div class="modal-header border-0 pb-0 px-4 pt-4">
                 <h5 class="fw-bold mb-0">Edit Vehicle Details</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             
             <div class="modal-body p-4">
-                <input type="hidden" name="update_car" value="1">
-                <input type="hidden" name="id" value="<?= $car['id'] ?>">
-
                 <div class="mb-4">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <label class="form-label small fw-bold text-muted mb-0">Vehicle Stash Gallery Management</label>
@@ -1622,7 +1324,11 @@
                             ?>
                                 <div class="col-4 col-sm-3 position-relative existing-photo-item mb-2" id="<?= $container_id ?>">
                                     <div class="card h-100 border rounded-3 overflow-hidden shadow-sm" style="min-height: 115px;">
-                                        <img src="../../public/assets/images/cars/<?= htmlspecialchars($img_name) ?>" class="w-100" style="height: 85px; object-fit: cover;" alt="Saved Vehicle Photo">
+                                        <img src="<?= $carsImgBaseUrl . htmlspecialchars($img_name) ?>" 
+                                             class="w-100" 
+                                             style="height: 85px; object-fit: cover;" 
+                                             alt="Saved Vehicle Photo"
+                                             onerror="this.onerror=null; this.src='<?= $carsImgBaseUrl ?>default.png'">
                                         <div class="p-1 text-center border-top <?= ($index === 0) ? 'bg-primary bg-opacity-10' : '' ?>">
                                             <?php if ($index === 0): ?>
                                                 <span class="d-block small text-primary fw-bold" style="font-size: 9px; letter-spacing: 0.5px;">⭐ MAIN PHOTO</span>
@@ -1631,8 +1337,10 @@
                                             <?php endif; ?>
                                         </div>
                                     </div>
-                                    <button type="button" class="btn btn-danger rounded-circle position-absolute d-flex align-items-center justify-content-center shadow-sm" 
-                                            onclick="markExistingForDeletion('<?= htmlspecialchars($img_name) ?>', '<?= $container_id ?>', <?= $car['id'] ?>)" 
+                                    <button type="button" class="btn btn-danger rounded-circle position-absolute d-flex align-items-center justify-content-center shadow-sm btn-delete-existing-img" 
+                                            data-img="<?= htmlspecialchars($img_name) ?>" 
+                                            data-container="<?= $container_id ?>" 
+                                            data-car="<?= $car['id'] ?>"
                                             style="top: -6px; right: 2px; width: 22px; height: 22px; padding: 0; z-index: 25; border: 1px solid #fff;" title="Delete Photo from Server">
                                         <i class="bi bi-trash" style="font-size: 11px;"></i>
                                     </button>
@@ -1723,15 +1431,8 @@
                         <label class="form-label small fw-bold">Plate Number</label>
                         <input type="text" name="plate_number" class="form-control text-uppercase" value="<?= htmlspecialchars($car['plate_number'] ?? '') ?>" required>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label small fw-bold">Status</label>
-                        <select name="status" class="form-select">
-                            <option value="Available" <?= ($car['status'] ?? '') == 'Available' ? 'selected' : '' ?>>Available</option>
-                            <option value="Active" <?= (($car['status'] ?? '') == 'Active' || ($car['status'] ?? '') == 'Rented') ? 'selected' : '' ?>>Active</option>
-                            <option value="Maintenance" <?= ($car['status'] ?? '') == 'Maintenance' ? 'selected' : '' ?>>Maintenance</option>
-                            <option value="Not Available" <?= ($car['status'] ?? '') == 'Not Available' ? 'selected' : '' ?>>Not Available</option>
-                        </select>
-                    </div>
+                    
+                    <!-- STATUS REMOVED HERE AS REQUESTED -->
 
                     <div class="col-md-6">
                         <label class="form-label small fw-bold">Branch</label>
@@ -1750,46 +1451,46 @@
 
                     <div class="col-md-6">
                         <label class="form-label small fw-bold">Price per 10 Hrs (₱)</label>
-                        <input type="number" name="price_10_hours" class="form-control" value="<?= $car['price_10_hours'] ?? 0 ?>" required>
+                        <input type="number" name="price_10_hours" class="form-control" value="<?= $car['price_10_hours'] ?? 0 ?>" step="0.01" required>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-bold text-success">Operator Share 10 Hrs (₱)</label>
-                        <input type="number" name="operator_10_hours" class="form-control text-success fw-bold" value="<?= $car['operator_10_hours'] ?? 0 ?>" required>
+                        <input type="number" name="operator_10_hours" class="form-control text-success fw-bold" value="<?= $car['operator_10_hours'] ?? 0 ?>" step="0.01" required>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-bold">Price per 12 Hrs (₱)</label>
-                        <input type="number" name="price_12_hours" class="form-control" value="<?= $car['price_12_hours'] ?? 0 ?>" required>
+                        <input type="number" name="price_12_hours" class="form-control" value="<?= $car['price_12_hours'] ?? 0 ?>" step="0.01" required>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-bold text-success">Operator Share 12 Hrs (₱)</label>
-                        <input type="number" name="operator_12_hours" class="form-control text-success fw-bold" value="<?= $car['operator_12_hours'] ?? 0 ?>" required>
+                        <input type="number" name="operator_12_hours" class="form-control text-success fw-bold" value="<?= $car['operator_12_hours'] ?? 0 ?>" step="0.01" required>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-bold">Price per 24 Hrs (₱)</label>
-                        <input type="number" name="price_24_hours" class="form-control" value="<?= $car['price_24_hours'] ?? 0 ?>" required>
+                        <input type="number" name="price_24_hours" class="form-control" value="<?= $car['price_24_hours'] ?? 0 ?>" step="0.01" required>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-bold text-success">Operator Share 24 Hrs (₱)</label>
-                        <input type="number" name="operator_24_hours" class="form-control text-success fw-bold" value="<?= $car['operator_24_hours'] ?? 0 ?>" required>
+                        <input type="number" name="operator_24_hours" class="form-control text-success fw-bold" value="<?= $car['operator_24_hours'] ?? 0 ?>" step="0.01" required>
                     </div>
 
                     <div class="col-12"><hr class="my-2"></div>
                     <div class="col-12"><h6 class="fw-bold text-danger mb-1">Hourly Overtime Extensions</h6></div>
                     <div class="col-md-3 col-6">
                         <label class="form-label small fw-bold">1-6 Hours (₱/Hr)</label>
-                        <input type="number" name="ext_price_1_6" class="form-control" value="<?= $car['ext_price_1_6'] ?? 0 ?>" required>
+                        <input type="number" name="ext_price_1_6" class="form-control" value="<?= $car['ext_price_1_6'] ?? 0 ?>" step="0.01" required>
                     </div>
                     <div class="col-md-3 col-6">
-                        <label class="form-label small fw-bold">7-10 Hours (₱/Hr)</label>
-                        <input type="number" name="ext_price_7_10" class="form-control" value="<?= $car['ext_price_7_10'] ?? 0 ?>" required>
+                        <label class="form-label small fw-bold">7-10 Hours (₱)</label>
+                        <input type="number" name="ext_price_7_10" class="form-control" value="<?= $car['ext_price_7_10'] ?? 0 ?>" step="0.01" required>
                     </div>
                     <div class="col-md-3 col-6">
-                        <label class="form-label small fw-bold">11-12 Hours (₱/Hr)</label>
-                        <input type="number" name="ext_price_11_12" class="form-control" value="<?= $car['ext_price_11_12'] ?? 0 ?>" required>
+                        <label class="form-label small fw-bold">11-12 Hours (₱)</label>
+                        <input type="number" name="ext_price_11_12" class="form-control" value="<?= $car['ext_price_11_12'] ?? 0 ?>" step="0.01" required>
                     </div>
                     <div class="col-md-3 col-6">
-                        <label class="form-label small fw-bold">13-24 Hours (₱/Hr)</label>
-                        <input type="number" name="ext_price_13_24" class="form-control" value="<?= $car['ext_price_13_24'] ?? 0 ?>" required>
+                        <label class="form-label small fw-bold">13-24 Hours (₱)</label>
+                        <input type="number" name="ext_price_13_24" class="form-control" value="<?= $car['ext_price_13_24'] ?? 0 ?>" step="0.01" required>
                     </div>
                 </div>
             </div>
@@ -1808,9 +1509,12 @@
 
     <script>
     // ============================================================
-    // THEME SWITCHER
+    // GLOBAL JS CONFIG & THEME SWITCHER
     // ============================================================
-    (function () {
+    const jsImgBaseUrl = "<?= $carsImgBaseUrl ?>";
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        const stored = localStorage.getItem('instacar-admin-theme');
         const toggleBtn = document.getElementById('themeToggleBtn');
         const toggleIcon = document.getElementById('themeToggleIcon');
         const STORAGE_KEY = 'instacar-admin-theme';
@@ -1823,7 +1527,7 @@
             }
         }
 
-        applyTheme(localStorage.getItem(STORAGE_KEY) === 'dark');
+        applyTheme(stored === 'dark');
 
         if (toggleBtn) {
             toggleBtn.addEventListener('click', function () {
@@ -1832,7 +1536,7 @@
                 localStorage.setItem(STORAGE_KEY, isDark ? 'dark' : 'light');
             });
         }
-    })();
+    });
 
     // ============================================================
     // TABLE FILTERING
@@ -1878,6 +1582,37 @@
         $('#unifiedFleetSearch').on('input', applyFleetLimiterAndFilter);
         $('#fleetEntryLimitSelect').on('change', applyFleetLimiterAndFilter);
         applyFleetLimiterAndFilter();
+    });
+
+    // ============================================================
+    // EXISTING PHOTO DELETION
+    // ============================================================
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-delete-existing-img');
+        if (btn) {
+            e.preventDefault();
+            const imgPath = btn.getAttribute('data-img');
+            const containerId = btn.getAttribute('data-container');
+            const carId = btn.getAttribute('data-car');
+            
+            if (confirm("Are you sure you want to permanently delete this photo?")) {
+                const container = document.getElementById('removedImagesContainer' + carId);
+                if (container) {
+                    const hiddenInput = document.createElement('input');
+                    hiddenInput.type = 'hidden';
+                    hiddenInput.name = 'delete_existing_images[]';
+                    hiddenInput.value = imgPath;
+                    container.appendChild(hiddenInput);
+                    
+                    const visualCard = document.getElementById(containerId);
+                    if (visualCard) {
+                        visualCard.style.opacity = '0.5';
+                        visualCard.style.pointerEvents = 'none';
+                        setTimeout(() => visualCard.remove(), 300);
+                    }
+                }
+            }
+        }
     });
 
     <?php if ($user_role === 'admin'): ?>
@@ -1964,6 +1699,24 @@
             fileInput.files = dataTransfer.files;
         });
     }
+
+    document.getElementById('addCarModal')?.addEventListener('hidden.bs.modal', function () {
+        imageStashArray = [];
+        renderStashGallery();
+        
+        const addCarOperatorHidden = document.getElementById('add_car_operator_id');
+        const selectedOperatorLabel = document.getElementById('selectedOperatorLabel');
+        const operatorSearchInput = document.getElementById('operatorSearchInput');
+        
+        if (addCarOperatorHidden) addCarOperatorHidden.value = '';
+        if (selectedOperatorLabel) {
+            selectedOperatorLabel.textContent = 'Select Operator (optional)';
+            selectedOperatorLabel.classList.add('text-muted');
+            selectedOperatorLabel.classList.remove('fw-semibold');
+        }
+        if (operatorSearchInput) operatorSearchInput.value = '';
+        renderOperatorOptions();
+    });
 
     const dropzone = document.getElementById('dropzoneContainer');
     if (dropzone) {
@@ -2103,28 +1856,6 @@
         }
     });
 
-    window.markExistingForDeletion = function(imagePath, containerId, carId) {
-        if (confirm("Are you sure you want to permanently delete this photo?")) {
-            const container = document.getElementById('removedImagesContainer' + carId);
-            if (container) {
-                const hiddenInput = document.createElement('input');
-                hiddenInput.type = 'hidden';
-                hiddenInput.name = 'delete_existing_images[]';
-                hiddenInput.value = imagePath;
-                container.appendChild(hiddenInput);
-                
-                const visualCard = document.getElementById(containerId);
-                if (visualCard) {
-                    visualCard.style.opacity = '0.5';
-                    visualCard.style.pointerEvents = 'none';
-                    setTimeout(() => visualCard.remove(), 300);
-                }
-                
-                updateBadge(carId);
-            }
-        }
-    };
-
     document.querySelectorAll('[id^="editCarModal"]').forEach(modal => {
         modal.addEventListener('shown.bs.modal', function() {
             const carId = this.id.replace('editCarModal', '');
@@ -2156,10 +1887,19 @@
             currentActiveCarId = triggerBtn.getAttribute('data-car-id');
             const carName = triggerBtn.getAttribute('data-car-name');
             const rawImages = triggerBtn.getAttribute('data-images');
-            const imagesArray = rawImages ? rawImages.split(',') : ['default.png'];
+            
+            // Replaced comma-split with JSON.parse
+            let imagesArray = [];
+            try {
+                imagesArray = JSON.parse(rawImages);
+            } catch(err) {
+                imagesArray = ['default.png'];
+            }
+            if(!imagesArray || imagesArray.length === 0) imagesArray = ['default.png'];
             
             modalTitle.textContent = `${carName} - Photo Gallery Stash`;
-            spotlightViewer.src = `../../public/assets/images/cars/${imagesArray[0]}`;
+            spotlightViewer.src = jsImgBaseUrl + imagesArray[0];
+            spotlightViewer.onerror = function() { this.src = jsImgBaseUrl + 'default.png'; };
             thumbnailsStripe.innerHTML = '';
 
             imagesArray.forEach((filename, idx) => {
@@ -2170,7 +1910,8 @@
                 wrapper.style.height = '75px';
 
                 const thumbImg = document.createElement('img');
-                thumbImg.src = `../../public/assets/images/cars/${filename}`;
+                thumbImg.src = jsImgBaseUrl + filename;
+                thumbImg.onerror = function() { this.src = jsImgBaseUrl + 'default.png'; };
                 thumbImg.className = `w-100 h-100 modal-gallery-thumb ${isFirst ? 'border-primary border-2' : 'border-transparent'}`;
                 thumbImg.style.objectFit = 'cover';
                 thumbImg.style.cursor = 'pointer';
@@ -2211,7 +1952,7 @@
                     if (thumbImg.classList.contains('border-primary')) return;
 
                     const chosenFilename = thumbImg.getAttribute('data-filename');
-                    spotlightViewer.src = `../../public/assets/images/cars/${chosenFilename}`;
+                    spotlightViewer.src = jsImgBaseUrl + chosenFilename;
 
                     if (!overlay.classList.contains('bg-info')) {
                         thumbnailsStripe.querySelectorAll('.modal-gallery-thumb').forEach(t => {
@@ -2232,7 +1973,7 @@
 
                     const outerMasterImg = document.getElementById(`master_car_img_${currentActiveCarId}`);
                     if (outerMasterImg) {
-                        outerMasterImg.src = `../../public/assets/images/cars/${chosenFilename}`;
+                        outerMasterImg.src = jsImgBaseUrl + chosenFilename;
                     }
 
                     thumbnailsStripe.querySelectorAll('.modal-gallery-thumb').forEach(t => {
@@ -2254,6 +1995,7 @@
 
                     const formData = new FormData();
                     formData.append('action', 'set_main_image');
+                    formData.append('csrf_token', '<?= $_SESSION['csrf_token'] ?>');
                     formData.append('car_id', currentActiveCarId);
                     formData.append('image_name', chosenFilename);
 
@@ -2264,13 +2006,13 @@
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
-                            let currentString = triggerBtn.getAttribute('data-images');
-                            let currentArr = currentString.split(',');
+                            // Update data-images JSON string
+                            let currentArr = imagesArray;
                             let itemIndex = currentArr.indexOf(chosenFilename);
                             if (itemIndex > -1) {
                                 currentArr.splice(itemIndex, 1);
                                 currentArr.unshift(chosenFilename);
-                                triggerBtn.setAttribute('data-images', currentArr.join(','));
+                                triggerBtn.setAttribute('data-images', JSON.stringify(currentArr));
                             }
                         }
                     })
@@ -2768,16 +2510,62 @@
         });
     }
 
-    document.getElementById('addCarModal')?.addEventListener('hidden.bs.modal', function () {
-        if (addCarOperatorHidden) addCarOperatorHidden.value = '';
-        if (selectedOperatorLabel) {
-            selectedOperatorLabel.textContent = 'Select Operator (optional)';
-            selectedOperatorLabel.classList.add('text-muted');
-            selectedOperatorLabel.classList.remove('fw-semibold');
-        }
-        if (operatorSearchInput) operatorSearchInput.value = '';
-        renderOperatorOptions();
+    renderOperatorOptions();
+
+    document.addEventListener('DOMContentLoaded', function() {
+    // 1. Select all inputs with our specific class
+    const priceInputs = document.querySelectorAll('.price-input');
+    
+    priceInputs.forEach(input => {
+        // Format as they type (adds commas)
+        input.addEventListener('input', function(e) {
+            // Strip everything except numbers and decimals
+            let value = this.value.replace(/[^0-9.]/g, '');
+            
+            // Split integer and decimal parts
+            let parts = value.split('.');
+            
+            // Add commas to the integer part
+            if (parts[0]) {
+                parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            }
+            
+            // Recombine (and prevent multiple decimal points)
+            let formatted = parts[0];
+            if (parts.length > 1) {
+                formatted += '.' + parts[1].substring(0, 2); // Max 2 decimal places
+            }
+            
+            this.value = formatted;
+        });
+
+        // Clean up on blur (remove .00 if it's a whole number, ensure formatting)
+        input.addEventListener('blur', function() {
+            let rawValue = this.value.replace(/,/g, '');
+            if (rawValue !== '') {
+                let num = parseFloat(rawValue);
+                if (!isNaN(num)) {
+                    if (num % 1 === 0) {
+                        // Whole number (e.g., 1000 -> "1,000")
+                        this.value = num.toLocaleString('en-US');
+                    } else {
+                        // Has decimals (e.g., 1000.5 -> "1,000.50")
+                        this.value = num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    }
+                }
+            }
+        });
     });
 
-    renderOperatorOptions();
+    // 2. When submitting, strip commas so PHP receives raw numbers
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => {
+        form.addEventListener('submit', function() {
+            priceInputs.forEach(input => {
+                // Remove commas before sending to server
+                input.value = input.value.replace(/,/g, '');
+            });
+        });
+    });
+});
     </script>

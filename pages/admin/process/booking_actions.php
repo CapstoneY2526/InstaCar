@@ -13,23 +13,41 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'staf
     exit();
 }
 
-// Who is performing the current action
 $current_actor_id = (int)$_SESSION['user_id'];
 
-// Base URL for emails — auto-detects localhost vs production
 if (!function_exists('emailBaseUrl')) {
     function emailBaseUrl() {
         $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
         $scheme  = $isHttps ? 'https' : 'http';
         $host    = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        // On localhost, XAMPP serves the project under /car-rental/
-        // On production, it serves from the domain root
         $base = (strpos($host, 'localhost') !== false) ? '/car-rental' : '';
         return $scheme . '://' . $host . $base;
     }
 }
 
-// Helper: where to send the user back after an action
+// NEW: Security function for file uploads
+if (!function_exists('handleSecureUpload')) {
+    function handleSecureUpload($file, $target_dir) {
+        if (!isset($file) || $file['error'] !== UPLOAD_ERR_OK) return null;
+        if ($file['size'] > 5 * 1024 * 1024) return null; // 5MB max
+        
+        $allowed_mimes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+        
+        if (!in_array($mime, $allowed_mimes)) return null;
+
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $new_name = "doc_" . uniqid() . "_" . time() . "." . $ext;
+        
+        if (move_uploaded_file($file['tmp_name'], $target_dir . $new_name)) {
+            return $new_name;
+        }
+        return null;
+    }
+}
+
 function redirectBack($source = 'online') {
     if ($_SESSION['role'] === 'staff') {
        return ($source === 'manual') ? '../../staff/bookings_manual.php' : '../../staff/bookings.php';
@@ -38,39 +56,19 @@ function redirectBack($source = 'online') {
 }
 
 function calculatePriceByHours($hours, $p10, $p12, $p24, $ext1_6, $ext7_10, $ext11_12, $ext13_24) {
-    // Guard: round to 2 decimals to kill floating-point noise (e.g. 24.00000000004)
     $hours = round($hours, 2);
-
-    // Apply ceil only for the sub-day tiers so a "just over 10h" booking
-    // lands on the 12h tier instead of falling through to 24h
-    if ($hours <= 10) {
-        return floatval($p10);
-    }
-    if ($hours <= 12) {
-        return floatval($p12);
-    }
-    if ($hours <= 24) {
-        return floatval($p24);
-    }
-
-    // Beyond 24 hours: bill whole days at the 24h rate + ONE flat extra charge
-    // based on which bracket the excess hours fall into.
+    if ($hours <= 10) return floatval($p10);
+    if ($hours <= 12) return floatval($p12);
+    if ($hours <= 24) return floatval($p24);
     $days       = floor($hours / 24);
     $extraHours = $hours - ($days * 24);
     $basePrice  = $days * floatval($p24);
-
     if ($extraHours > 0) {
-        if ($extraHours <= 6) {
-            $basePrice += floatval($ext1_6);
-        } elseif ($extraHours <= 10) {
-            $basePrice += floatval($ext7_10);
-        } elseif ($extraHours <= 12) {
-            $basePrice += floatval($ext11_12);
-        } else {
-            $basePrice += floatval($ext13_24);
-        }
+        if ($extraHours <= 6) $basePrice += floatval($ext1_6);
+        elseif ($extraHours <= 10) $basePrice += floatval($ext7_10);
+        elseif ($extraHours <= 12) $basePrice += floatval($ext11_12);
+        else $basePrice += floatval($ext13_24);
     }
-
     return round($basePrice, 2);
 }
 
@@ -99,8 +97,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['booking_id']) && !is
     if (strlen($pickup_time) === 5) $pickup_time .= ':00';
     if (strlen($return_time) === 5) $return_time .= ':00';
 
-    $total_price  = floatval($_POST['total_price'] ?? 0);
-    $down_payment = floatval($_POST['down_payment'] ?? 0);
+    // NEW: Strip commas from formatted prices
+    $total_price  = floatval(str_replace(',', '', $_POST['total_price'] ?? 0));
+    $down_payment = floatval(str_replace(',', '', $_POST['down_payment'] ?? 0));
 
     $old_res = mysqli_query($conn, "SELECT car_id, primary_id_path, secondary_id_path, proof_billing_path, proof_payment_path FROM bookings WHERE id = $booking_id");
     $old_booking = mysqli_fetch_assoc($old_res);
@@ -148,6 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['booking_id']) && !is
         mkdir($customer_upload_dir, 0775, true);
     }
 
+    // NEW: Use secure upload function
     $file_keys = [
         'primary_id'       => &$primary_id_path,
         'secondary_id'     => &$secondary_id_path,
@@ -156,11 +156,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['booking_id']) && !is
     ];
 
     foreach ($file_keys as $key => &$path) {
-        if (!empty($_FILES[$key]['name']) && $_FILES[$key]['error'] === UPLOAD_ERR_OK) {
-            $ext = pathinfo($_FILES[$key]['name'], PATHINFO_EXTENSION);
-            $filename = $key . '_' . time() . '.' . $ext;
-            if (move_uploaded_file($_FILES[$key]['tmp_name'], $customer_upload_dir . $filename)) {
-                $path = $customer_folder . '/' . $filename;
+        if (!empty($_FILES[$key]['name'])) {
+            $uploaded = handleSecureUpload($_FILES[$key], $customer_upload_dir);
+            if ($uploaded) {
+                $path = $customer_folder . '/' . $uploaded;
             }
         }
     }
@@ -201,10 +200,78 @@ if (isset($_GET['id'], $_GET['status'])) {
     $source     = $_GET['source'] ?? 'online';
     $filter     = $_GET['filter'] ?? 'All';
 
-    $valid_statuses = ['Pending', 'Confirmed', 'Completed', 'Cancelled'];
+    // NEW: Added 'Released'
+    $valid_statuses = ['Pending', 'Confirmed', 'Released', 'Completed', 'Cancelled'];
     
     if (!in_array($new_status, $valid_statuses)) {
         $_SESSION['error'] = "Invalid status: $new_status";
+        $redirect = redirectBack($source);
+        header("Location: $redirect?filter=$filter");
+        exit();
+    }
+
+    // NEW: Strict Flow Validation
+    $current_state_res = mysqli_query($conn, "SELECT status, car_id FROM bookings WHERE id = $booking_id");
+    $current_state = mysqli_fetch_assoc($current_state_res);
+    if (!$current_state) {
+        $_SESSION['error'] = "Booking not found.";
+        header("Location: " . redirectBack($source) . "?filter=$filter"); exit();
+    }
+    $old_status = $current_state['status'];
+    $car_id = $current_state['car_id'];
+
+    if ($new_status === 'Confirmed' && $old_status !== 'Pending') {
+        $_SESSION['error'] = "Error: Can only Confirm a Pending booking."; header("Location: " . redirectBack($source) . "?filter=$filter"); exit();
+    }
+    if ($new_status === 'Released' && $old_status !== 'Confirmed') {
+        $_SESSION['error'] = "Error: Can only Release a Confirmed booking."; header("Location: " . redirectBack($source) . "?filter=$filter"); exit();
+    }
+    if ($new_status === 'Completed' && $old_status !== 'Released') {
+        $_SESSION['error'] = "Error: Can only Complete a Released booking."; header("Location: " . redirectBack($source) . "?filter=$filter"); exit();
+    }
+
+    // NEW: RELEASED LOGIC
+    if ($new_status === 'Released') {
+        $update_sql = "UPDATE bookings SET status = 'Released', last_action_by = $current_actor_id, last_action_at = NOW(), last_action_type = 'Released' WHERE id = $booking_id";
+        if (mysqli_query($conn, $update_sql)) {
+            mysqli_query($conn, "UPDATE cars SET status = 'Active' WHERE id = $car_id");
+            
+            $query = mysqli_query($conn, "SELECT b.guest_name, b.gmail AS booking_gmail, u.name AS user_name, u.email AS user_email FROM bookings b LEFT JOIN users u ON b.user_id = u.id WHERE b.id = $booking_id");
+            $data = mysqli_fetch_assoc($query);
+            if ($data) {
+                $name  = !empty($data['user_name']) ? $data['user_name'] : $data['guest_name'];
+                $email = !empty($data['user_email']) ? $data['user_email'] : $data['booking_gmail'];
+                if (!empty($email)) {
+                    $subject = "Vehicle Released - InstaCar";
+                    // Using your exact original email design
+                    $dashboard_link = emailBaseUrl() . "/pages/user/dashboard.php";
+                    $body = "
+                    <div style='max-width:600px; margin:20px auto; font-family: \"Poppins\", sans-serif, Arial; background-color: #121212; border-radius:20px; overflow:hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #333;'>
+                        <div style='background: #ffcc00; padding:40px; text-align:center;'>
+                            <h1 style='margin:0; font-size:28px; color: #000000; text-transform: uppercase; letter-spacing: 2px; font-weight: 800;'>
+                                Vehicle Released!
+                            </h1>
+                        </div>
+                        <div style='padding:40px; color:#ffffff; line-height:1.6;'>
+                            <p style='font-size: 18px;'>Hello <strong>$name</strong>,</p>
+                            <p style='color: #bbb;'>Your vehicle has been released and is officially on the road. Drive safely and enjoy your journey!</p>
+                            <div style='text-align:center; margin:40px 0;'>
+                                <a href='$dashboard_link' style='display:inline-block; background:#ffcc00; color:#000000; padding:15px 35px; text-decoration:none; border-radius:10px; font-weight:800; text-transform: uppercase; letter-spacing: 1px;'>
+                                    Go to Dashboard
+                                </a>
+                            </div>
+                            <hr style='border:0; border-top:1px solid #333; margin:30px 0;'>
+                            <div style='text-align:center;'>
+                                <p style='font-size:12px; color:#666; margin-bottom: 5px;'>Thank you for choosing InstaCar!</p>
+                                <p style='font-size:10px; color:#444; text-transform: uppercase;'>&copy; 2026 InstaCar Rental Service</p>
+                            </div>
+                        </div>
+                    </div>";
+                    sendEmail($email, $name, $body, $subject);
+                }
+            }
+            $_SESSION['success'] = "✅ Vehicle Released successfully.";
+        }
         $redirect = redirectBack($source);
         header("Location: $redirect?filter=$filter");
         exit();
@@ -534,40 +601,20 @@ if (isset($_POST['add_manual_booking'])) {
     $secondary_id_path = '';
     $proof_billing_path = '';
 
-    if (!empty($_FILES['primary_id']['name']) && $_FILES['primary_id']['error'] === UPLOAD_ERR_OK) {
-        $ext = pathinfo($_FILES['primary_id']['name'], PATHINFO_EXTENSION);
-        $filename = 'primary_' . time() . '.' . $ext;
-        if (move_uploaded_file($_FILES['primary_id']['tmp_name'], $customer_upload_dir . $filename)) {
-            $primary_id_path = $customer_folder . '/' . $filename;
-        } else {
-            $_SESSION['error'] = "Failed to upload Primary ID. Check folder permissions.";
-            echo "<script>window.location.href='" . redirectBack('manual') . "';</script>";
-            exit();
-        }
+    // NEW: Use secure upload function for manual bookings too
+    if (!empty($_FILES['primary_id']['name'])) {
+        $uploaded = handleSecureUpload($_FILES['primary_id'], $customer_upload_dir);
+        if ($uploaded) $primary_id_path = $customer_folder . '/' . $uploaded;
     }
 
-    if (!empty($_FILES['secondary_id']['name']) && $_FILES['secondary_id']['error'] === UPLOAD_ERR_OK) {
-        $ext = pathinfo($_FILES['secondary_id']['name'], PATHINFO_EXTENSION);
-        $filename = 'secondary_' . time() . '.' . $ext;
-        if (move_uploaded_file($_FILES['secondary_id']['tmp_name'], $customer_upload_dir . $filename)) {
-            $secondary_id_path = $customer_folder . '/' . $filename;
-        } else {
-            $_SESSION['error'] = "Failed to upload Secondary ID. Check folder permissions.";
-            echo "<script>window.location.href='" . redirectBack('manual') . "';</script>";
-            exit();
-        }
+    if (!empty($_FILES['secondary_id']['name'])) {
+        $uploaded = handleSecureUpload($_FILES['secondary_id'], $customer_upload_dir);
+        if ($uploaded) $secondary_id_path = $customer_folder . '/' . $uploaded;
     }
 
-    if (!empty($_FILES['proof_of_billing']['name']) && $_FILES['proof_of_billing']['error'] === UPLOAD_ERR_OK) {
-        $ext = pathinfo($_FILES['proof_of_billing']['name'], PATHINFO_EXTENSION);
-        $filename = 'proof_' . time() . '.' . $ext;
-        if (move_uploaded_file($_FILES['proof_of_billing']['tmp_name'], $customer_upload_dir . $filename)) {
-            $proof_billing_path = $customer_folder . '/' . $filename;
-        } else {
-            $_SESSION['error'] = "Failed to upload Proof of Billing. Check folder permissions.";
-            echo "<script>window.location.href='" . redirectBack('manual') . "';</script>";
-            exit();
-        }
+    if (!empty($_FILES['proof_of_billing']['name'])) {
+        $uploaded = handleSecureUpload($_FILES['proof_of_billing'], $customer_upload_dir);
+        if ($uploaded) $proof_billing_path = $customer_folder . '/' . $uploaded;
     }
 
     $guest_name_sql = !empty($guest_name) ? "'" . mysqli_real_escape_string($conn, $guest_name) . "'" : "NULL";
@@ -719,28 +766,20 @@ if (isset($_POST['update_booking'])) {
         mkdir($customer_upload_dir, 0775, true);
     }
 
-    if (!empty($_FILES['primary_id']['name']) && $_FILES['primary_id']['error'] === UPLOAD_ERR_OK) {
-        $ext = pathinfo($_FILES['primary_id']['name'], PATHINFO_EXTENSION);
-        $filename = 'primary_' . time() . '.' . $ext;
-        if (move_uploaded_file($_FILES['primary_id']['tmp_name'], $customer_upload_dir . $filename)) {
-            $primary_id_path = $customer_folder . '/' . $filename;
-        }
+    // NEW: Use secure upload function
+    if (!empty($_FILES['primary_id']['name'])) {
+        $uploaded = handleSecureUpload($_FILES['primary_id'], $customer_upload_dir);
+        if ($uploaded) $primary_id_path = $customer_folder . '/' . $uploaded;
     }
 
-    if (!empty($_FILES['secondary_id']['name']) && $_FILES['secondary_id']['error'] === UPLOAD_ERR_OK) {
-        $ext = pathinfo($_FILES['secondary_id']['name'], PATHINFO_EXTENSION);
-        $filename = 'secondary_' . time() . '.' . $ext;
-        if (move_uploaded_file($_FILES['secondary_id']['tmp_name'], $customer_upload_dir . $filename)) {
-            $secondary_id_path = $customer_folder . '/' . $filename;
-        }
+    if (!empty($_FILES['secondary_id']['name'])) {
+        $uploaded = handleSecureUpload($_FILES['secondary_id'], $customer_upload_dir);
+        if ($uploaded) $secondary_id_path = $customer_folder . '/' . $uploaded;
     }
 
-    if (!empty($_FILES['proof_of_billing']['name']) && $_FILES['proof_of_billing']['error'] === UPLOAD_ERR_OK) {
-        $ext = pathinfo($_FILES['proof_of_billing']['name'], PATHINFO_EXTENSION);
-        $filename = 'proof_' . time() . '.' . $ext;
-        if (move_uploaded_file($_FILES['proof_of_billing']['tmp_name'], $customer_upload_dir . $filename)) {
-            $proof_billing_path = $customer_folder . '/' . $filename;
-        }
+    if (!empty($_FILES['proof_of_billing']['name'])) {
+        $uploaded = handleSecureUpload($_FILES['proof_of_billing'], $customer_upload_dir);
+        if ($uploaded) $proof_billing_path = $customer_folder . '/' . $uploaded;
     }
 
     $update_sql = "UPDATE bookings 

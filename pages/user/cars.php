@@ -18,6 +18,19 @@ $user_role = $_SESSION['role'];
 $type_filter = isset($_GET['type']) ? $_GET['type'] : 'All';
 $status_filter = isset($_GET['status']) ? $_GET['status'] : 'All';
 
+// Schedule filter (only applied when BOTH dates are valid and in order)
+$date_start = isset($_GET['date_start']) ? trim($_GET['date_start']) : '';
+$date_end   = isset($_GET['date_end'])   ? trim($_GET['date_end'])   : '';
+$date_ok = preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_start) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_end) && $date_start <= $date_end;
+if (!$date_ok) { $date_start = ''; $date_end = ''; }
+$has_schedule = ($date_start !== '' && $date_end !== '');
+
+// Pagination setup (cars per page is selectable)
+$allowed_per_page = [12, 24, 48, 96];
+$limit = (isset($_GET['per_page']) && in_array((int)$_GET['per_page'], $allowed_per_page, true)) ? (int)$_GET['per_page'] : 12;
+$page = isset($_GET['page']) && is_numeric($_GET['page']) ? (int)$_GET['page'] : 1;
+if ($page < 1) $page = 1;
+
 // Get distinct car types for filter dropdown
 $typeQuery = "SELECT DISTINCT type FROM cars WHERE status IN ('Available', 'Active', 'Rented') ORDER BY type";
 $typeResult = mysqli_query($conn, $typeQuery);
@@ -38,30 +51,53 @@ if ($branchResult) {
 }
 
 // Build query with filters — join branches so each car knows its branch name
-$query = "SELECT c.*, b.name AS branch_name, b.address AS branch_address, b.phone AS branch_phone
-          FROM cars c
-          LEFT JOIN branches b ON c.branch_id = b.id
-          WHERE c.status IN ('Available', 'Active', 'Rented')";
+$whereClause = " WHERE c.status IN ('Available', 'Active', 'Rented')";
 
 if ($type_filter !== 'All') {
     $type_filter_safe = mysqli_real_escape_string($conn, $type_filter);
-    $query .= " AND c.type = '$type_filter_safe'";
+    $whereClause .= " AND c.type = '$type_filter_safe'";
 }
 
 if ($status_filter !== 'All') {
     $status_filter_safe = mysqli_real_escape_string($conn, $status_filter);
-    $query .= " AND c.status = '$status_filter_safe'";
+    $whereClause .= " AND c.status = '$status_filter_safe'";
 }
 
 // Branch filter — only apply when a specific branch is chosen
-if ($branch_filter !== 'All') {
-    $branch_filter_safe = intval($branch_filter);
+if ($branch_filter !== 'All' && is_numeric($branch_filter)) {
+    $branch_filter_safe = (int)$branch_filter;
     if ($branch_filter_safe > 0) {
-        $query .= " AND c.branch_id = $branch_filter_safe";
+        $whereClause .= " AND c.branch_id = $branch_filter_safe";
     }
 }
 
-$query .= " ORDER BY c.created_at DESC";
+// Schedule filter — hide cars that already have an active booking overlapping the chosen range
+if ($has_schedule) {
+    $ds = mysqli_real_escape_string($conn, $date_start);
+    $de = mysqli_real_escape_string($conn, $date_end);
+    $whereClause .= " AND c.id NOT IN (
+        SELECT car_id FROM bookings
+        WHERE status NOT IN ('Cancelled', 'Completed')
+        AND DATE(start_date) <= '$de'
+        AND DATE(end_date) >= '$ds'
+    )";
+}
+
+// Total of cars that match the current filters
+$countResult = mysqli_query($conn, "SELECT COUNT(*) AS total FROM cars c" . $whereClause);
+$total_cars  = (int)mysqli_fetch_assoc($countResult)['total'];
+$total_pages = max(1, (int)ceil($total_cars / $limit));
+if ($page > $total_pages) $page = $total_pages;
+$offset = ($page - 1) * $limit;
+
+// Total fleet — ignores every filter, so customers know the list isn't the whole fleet
+$fleetResult = mysqli_query($conn, "SELECT COUNT(*) AS total FROM cars WHERE status IN ('Available', 'Active', 'Rented')");
+$fleet_total = (int)mysqli_fetch_assoc($fleetResult)['total'];
+
+$query = "SELECT c.*, b.name AS branch_name, b.address AS branch_address, b.phone AS branch_phone
+          FROM cars c
+          LEFT JOIN branches b ON c.branch_id = b.id" . $whereClause . "
+          ORDER BY c.created_at DESC LIMIT $limit OFFSET $offset";
 
 $cars_result = mysqli_query($conn, $query);
 $cars = [];
@@ -83,6 +119,21 @@ if (file_exists($qr_file_path)) {
     $qr_image_src = "../../public/assets/images/qr_code_payment.png?v=" . filemtime($qr_file_path);
 } else {
     $qr_image_src = "../../public/assets/images/qr_code_payment.png?v=" . time();
+}
+
+// Helper: pagination URL (keeps every active filter)
+function buildPageUrl($pageNum) {
+    $params = $_GET;
+    $params['page'] = $pageNum;
+    return '?' . http_build_query($params);
+}
+
+// Helper: current filters as a URL with some params removed (used by the filter badges)
+function buildFilterUrl(array $remove = []) {
+    $params = $_GET;
+    unset($params['page']);
+    foreach ($remove as $key) unset($params[$key]);
+    return '?' . http_build_query($params);
 }
 ?>
 
@@ -189,7 +240,8 @@ if (file_exists($qr_file_path)) {
         margin-bottom: 0.5rem;
     }
     
-    .filter-select {
+    .filter-select,
+    .filter-input {
         border-radius: 12px;
         border: 1px solid var(--border-color);
         padding: 0.5rem 1rem;
@@ -202,7 +254,9 @@ if (file_exists($qr_file_path)) {
     }
     
     .filter-select:hover,
-    .filter-select:focus {
+    .filter-select:focus,
+    .filter-input:hover,
+    .filter-input:focus {
         border-color: var(--yellow-primary);
         box-shadow: 0 0 0 3px var(--yellow-dim);
         outline: none;
@@ -984,6 +1038,39 @@ if (file_exists($qr_file_path)) {
         color: #ffcc00 !important;
     }
 
+
+    /* File Uploads */
+    .file-upload-row { display: flex; align-items: stretch; gap: 8px; }
+    .custom-file-upload {
+        flex: 1 1 auto; border: 2px dashed var(--border-color); border-radius: 12px; padding: 1rem;
+        text-align: center; transition: all 0.2s ease; background: var(--bg-alt); cursor: pointer;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .custom-file-upload:hover { border-color: var(--yellow-primary); background: var(--yellow-dim); }
+    .custom-file-upload input[type="file"] { display: none; }
+    .upload-icon { font-size: 1.5rem; color: var(--text-secondary); margin-bottom: 4px; display: block; }
+    .upload-text { font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; }
+
+    .btn-preview-file {
+        flex: 0 0 auto; border: 1px solid var(--border-color); background: var(--bg-card);
+        color: var(--text-secondary); border-radius: 10px; padding: 0 12px; font-size: 0.75rem;
+        font-weight: 600; display: inline-flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 2px; transition: all 0.2s ease; cursor: pointer;
+    }
+    .btn-preview-file:hover:not(:disabled) { border-color: var(--yellow-primary); background: var(--yellow-dim); color: var(--text-primary); }
+    .btn-preview-file:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* Hide card when filtered out by JS search */
+    .car-item.d-none { display: none !important; }
+
+    /* Pagination styling */
+    .pagination .page-link { color: var(--text-primary); background-color: var(--bg-card); border-color: var(--border-color); }
+    .pagination .page-item.active .page-link { background-color: var(--yellow-primary); border-color: var(--yellow-primary); color: var(--text-on-yellow); }
+    .pagination .page-link:hover { background-color: var(--yellow-dim); color: var(--yellow-hover); }
+    .pagination .page-item.disabled .page-link { opacity: 0.5; }
+
+    /* Fleet total note */
+    .fleet-note { font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px; }
 </style>
 
 <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
@@ -1002,6 +1089,16 @@ if (file_exists($qr_file_path)) {
                     <div>
                         <h3 class="fw-bold mb-0">Vehicle <span style="color: #ffcc00 !important;">Gallery</span></h3>
                         <p class="text-muted mb-0">Browse our fleet and check availability.</p>
+                    </div>
+
+                    <!-- Search Bar (searches the vehicles shown on this page) -->
+                    <div style="min-width: 250px; max-width: 350px; width: 100%;">
+                        <div class="input-group">
+                            <span class="input-group-text bg-transparent border-end-0" style="border-color: var(--border-color); border-radius: 12px 0 0 12px;">
+                                <i class="bi bi-search text-muted"></i>
+                            </span>
+                            <input type="text" id="liveSearch" class="form-control border-start-0 ps-0 filter-input" placeholder="Search this page: brand, model, type..." style="border-radius: 0 12px 12px 0;">
+                        </div>
                     </div>
                 </div>
                 
@@ -1045,21 +1142,46 @@ if (file_exists($qr_file_path)) {
                                 <option value="Active" <?= $status_filter == 'Active' ? 'selected' : '' ?>>Rented/Active</option>
                             </select>
                         </div>
+
+                        <div class="col-sm-6 col-md-3">
+                            <div class="filter-label">
+                                <i class="bi bi-list-ol"></i> Cars per Page
+                            </div>
+                            <select class="filter-select w-100" id="perPageFilter" onchange="applyFilters()">
+                                <?php foreach ($allowed_per_page as $pp): ?>
+                                    <option value="<?= $pp ?>" <?= $limit === $pp ? 'selected' : '' ?>><?= $pp ?> per page</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="col-sm-6 col-md-3">
+                            <div class="filter-label">
+                                <i class="bi bi-calendar-event"></i> Pickup Date
+                            </div>
+                            <input type="date" class="filter-input w-100" id="dateStartFilter" value="<?= htmlspecialchars($date_start) ?>" onchange="applyFilters()" title="Pickup Date">
+                        </div>
+
+                        <div class="col-sm-6 col-md-3">
+                            <div class="filter-label">
+                                <i class="bi bi-calendar-check"></i> Return Date
+                            </div>
+                            <input type="date" class="filter-input w-100" id="dateEndFilter" value="<?= htmlspecialchars($date_end) ?>" onchange="applyFilters()" title="Return Date">
+                        </div>
                         
-                        <div class="col-12 col-md-3">
+                        <div class="col-12 col-md-3 offset-md-3">
                             <button class="btn btn-outline-secondary reset-filter w-100" onclick="resetFilters()">
                                 <i class="bi bi-x-circle"></i> Reset All Filters
                             </button>
                         </div>
                     </div>
                     
-                    <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All'): ?>
+                    <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All' || $has_schedule): ?>
                         <div class="active-filters">
                             <span class="small text-muted me-2">Active filters:</span>
                             <?php if ($type_filter !== 'All'): ?>
                                 <span class="filter-badge">
                                     Type: <?= htmlspecialchars($type_filter) ?>
-                                    <a href="?type=All&status=<?= $status_filter ?>&branch=<?= $branch_filter ?>">×</a>
+                                    <a href="<?= htmlspecialchars(buildFilterUrl(['type'])) ?>">×</a>
                                 </span>
                             <?php endif; ?>
                             <?php if ($branch_filter !== 'All'):
@@ -1070,21 +1192,27 @@ if (file_exists($qr_file_path)) {
                             ?>
                                 <span class="filter-badge">
                                     Branch: <?= htmlspecialchars($active_branch_name ?: 'Selected') ?>
-                                    <a href="?type=<?= $type_filter ?>&status=<?= $status_filter ?>&branch=All">×</a>
+                                    <a href="<?= htmlspecialchars(buildFilterUrl(['branch'])) ?>">×</a>
                                 </span>
                             <?php endif; ?>
                             <?php if ($status_filter !== 'All'): ?>
                                 <span class="filter-badge">
                                     Status: <?= $status_filter == 'Available' ? 'Available' : 'Rented/Active' ?>
-                                    <a href="?type=<?= $type_filter ?>&status=All&branch=<?= $branch_filter ?>">×</a>
+                                    <a href="<?= htmlspecialchars(buildFilterUrl(['status'])) ?>">×</a>
+                                </span>
+                            <?php endif; ?>
+                            <?php if ($has_schedule): ?>
+                                <span class="filter-badge">
+                                    Free: <?= htmlspecialchars(date('M j, Y', strtotime($date_start))) ?> – <?= htmlspecialchars(date('M j, Y', strtotime($date_end))) ?>
+                                    <a href="<?= htmlspecialchars(buildFilterUrl(['date_start', 'date_end'])) ?>">×</a>
                                 </span>
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
                     
                     <div class="results-count">
-                        <i class="bi bi-car-front"></i> Showing <?= count($cars) ?> vehicle<?= count($cars) != 1 ? 's' : '' ?>
-                        <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All'): ?>
+                        <i class="bi bi-car-front"></i> Showing <span id="visibleCount"><?= count($cars) ?></span> of <?= $total_cars ?> matching vehicle<?= $total_cars != 1 ? 's' : '' ?>
+                        <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All' || $has_schedule): ?>
                             <?php
                                 $bits = [];
                                 if ($type_filter !== 'All')   $bits[] = 'type "' . htmlspecialchars($type_filter) . '"';
@@ -1096,10 +1224,25 @@ if (file_exists($qr_file_path)) {
                                     if ($bn) $bits[] = 'at "' . htmlspecialchars($bn) . '"';
                                 }
                                 if ($status_filter !== 'All') $bits[] = 'with status "' . ($status_filter == 'Available' ? 'Available' : 'Rented/Active') . '"';
+                                if ($has_schedule) $bits[] = 'free for the selected dates';
                             ?>
                             <?= $bits ? ' ' . implode(' ', $bits) : '' ?>
                         <?php endif; ?>
+                        <?php if ($total_pages > 1): ?>
+                            <span class="text-muted">(page <?= $page ?> of <?= $total_pages ?>)</span>
+                        <?php endif; ?>
                     </div>
+                    <div class="fleet-note">
+                        <i class="bi bi-info-circle"></i>
+                        Total fleet: <strong><?= $fleet_total ?></strong> vehicle<?= $fleet_total != 1 ? 's' : '' ?>
+                        <?php if ($total_cars < $fleet_total || $total_pages > 1): ?>
+                            — this is not the full list. Adjust the filters or use the page controls to see more cars.
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <div id="searchNoResults" class="alert alert-warning d-none">
+                    <i class="bi bi-search"></i> No vehicle on this page matches your search. Other pages may have more.
                 </div>
                 
                 <div class="row g-3 g-md-4" id="carContainer">
@@ -1108,13 +1251,13 @@ if (file_exists($qr_file_path)) {
                             <i class="bi bi-car-front text-muted" style="font-size: 4rem;"></i>
                             <h5 class="mt-3 text-muted">No vehicles found</h5>
                             <p class="text-muted small">
-                                <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All'): ?>
+                                <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All' || $has_schedule): ?>
                                     No vehicles match your filters. Try adjusting your criteria.
                                 <?php else: ?>
                                     Please check back later for available cars.
                                 <?php endif; ?>
                             </p>
-                            <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All'): ?>
+                            <?php if ($type_filter !== 'All' || $status_filter !== 'All' || $branch_filter !== 'All' || $has_schedule): ?>
                                 <button onclick="resetFilters()" class="btn btn-primary mt-2">
                                     <i class="bi bi-arrow-repeat"></i> Reset Filters
                                 </button>
@@ -1122,7 +1265,11 @@ if (file_exists($qr_file_path)) {
                         </div>
                     <?php else: ?>
                         <?php foreach ($cars as $car): ?>
-                            <div class="col-sm-6 col-md-6 col-lg-4 col-xl-3 car-item position-relative" style="z-index: 1;">
+                            <div class="col-sm-6 col-md-6 col-lg-4 col-xl-3 car-item position-relative car-card" 
+                                 data-brand="<?= htmlspecialchars(strtolower($car['brand'])) ?>"
+                                 data-model="<?= htmlspecialchars(strtolower($car['model'])) ?>"
+                                 data-type="<?= htmlspecialchars(strtolower($car['type'])) ?>"
+                                 style="z-index: 1;">
                                 <div class="card h-100 border-0 shadow-sm rounded-4 hover-card transition-all" data-car-id="<?= $car['id'] ?>">
                                     
                                     <!-- Image Header Section -->
@@ -1250,16 +1397,43 @@ if (file_exists($qr_file_path)) {
 
                                         <!-- Action Button -->
                                         <button class="btn btn-primary w-100 fw-bold py-2 rounded-3 shadow-sm mt-auto" 
-                                                onclick="openBookingModal(<?= htmlspecialchars(json_encode($car), ENT_QUOTES, 'UTF-8') ?>)">
+                                                onclick="openBookingModal(<?= (int)$car['id'] ?>)">
                                             <i class="bi bi-calendar-check me-2"></i>Book Now
                                         </button>
                                     </div>
 
                                 </div>
                             </div>
+                            <script type="application/json" id="carData-<?= (int)$car['id'] ?>"><?= json_encode($car, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
                         <?php endforeach; ?>
                     <?php endif; ?>
                 </div>
+
+                <!-- PAGINATION -->
+                <?php if ($total_pages > 1): ?>
+                    <nav aria-label="Page navigation" class="mt-5">
+                        <ul class="pagination justify-content-center flex-wrap">
+                            <li class="page-item <?= ($page <= 1) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= htmlspecialchars(buildPageUrl($page - 1)) ?>" aria-label="Previous"><span aria-hidden="true">&laquo;</span></a>
+                            </li>
+                            <?php
+                                $shown_gap = false;
+                                for ($i = 1; $i <= $total_pages; $i++):
+                                    if ($i == 1 || $i == $total_pages || abs($i - $page) <= 2):
+                                        $shown_gap = false;
+                            ?>
+                                <li class="page-item <?= ($page == $i) ? 'active' : '' ?>">
+                                    <a class="page-link" href="<?= htmlspecialchars(buildPageUrl($i)) ?>"><?= $i ?></a>
+                                </li>
+                            <?php elseif (!$shown_gap): $shown_gap = true; ?>
+                                <li class="page-item disabled"><span class="page-link">…</span></li>
+                            <?php endif; endfor; ?>
+                            <li class="page-item <?= ($page >= $total_pages) ? 'disabled' : '' ?>">
+                                <a class="page-link" href="<?= htmlspecialchars(buildPageUrl($page + 1)) ?>" aria-label="Next"><span aria-hidden="true">&raquo;</span></a>
+                            </li>
+                        </ul>
+                    </nav>
+                <?php endif; ?>
             </div>
             
             <div class="mt-auto">
@@ -1300,16 +1474,33 @@ if (file_exists($qr_file_path)) {
 
 <script>
 function applyFilters() {
-    var type   = document.getElementById('typeFilter').value;
-    var status = document.getElementById('statusFilter').value;
-    var branch = document.getElementById('branchFilter') ? document.getElementById('branchFilter').value : 'All';
-    window.location.href = '?type=' + encodeURIComponent(type)
-                         + '&status=' + encodeURIComponent(status)
-                         + '&branch=' + encodeURIComponent(branch);
+    var type    = document.getElementById('typeFilter').value;
+    var status  = document.getElementById('statusFilter').value;
+    var branch  = document.getElementById('branchFilter') ? document.getElementById('branchFilter').value : 'All';
+    var perPage = document.getElementById('perPageFilter') ? document.getElementById('perPageFilter').value : '12';
+    var ds      = document.getElementById('dateStartFilter') ? document.getElementById('dateStartFilter').value : '';
+    var de      = document.getElementById('dateEndFilter') ? document.getElementById('dateEndFilter').value : '';
+
+    // Schedule filter needs BOTH dates — wait until the second one is picked
+    if ((ds && !de) || (!ds && de)) return;
+    if (ds && de && ds > de) {
+        alert('Return date must be on or after the pickup date.');
+        return;
+    }
+
+    var url = '?type=' + encodeURIComponent(type)
+            + '&status=' + encodeURIComponent(status)
+            + '&branch=' + encodeURIComponent(branch)
+            + '&per_page=' + encodeURIComponent(perPage);
+    if (ds && de) {
+        url += '&date_start=' + encodeURIComponent(ds) + '&date_end=' + encodeURIComponent(de);
+    }
+    window.location.href = url;   // always back to page 1 when filters change
 }
 
 function resetFilters() {
-    window.location.href = '?type=All&status=All&branch=All';
+    var perPage = document.getElementById('perPageFilter') ? document.getElementById('perPageFilter').value : '12';
+    window.location.href = '?type=All&status=All&branch=All&per_page=' + encodeURIComponent(perPage);
 }
 </script>
 
@@ -1479,42 +1670,80 @@ function resetFilters() {
                             <label for="deliveryAddress" class="form-label small fw-bold text-muted mb-1">Delivery Address</label>
                             <textarea name="delivery_address" id="deliveryAddress" class="form-control form-control-sm p-2.5 custom-placeholder" rows="2" placeholder="Enter complete delivery location / landmark..."></textarea>
                         </div>
+
+                        <!-- RETURN ADDRESS -->
+                        <div class="mt-3">
+                            <label for="returnDeliveryAddress" class="form-label small fw-bold text-danger mb-1">
+                                <i class="bi bi-arrow-return-left me-1"></i> Return Address (Where we will pick up the car)
+                            </label>
+                            <textarea name="return_delivery_address" id="returnDeliveryAddress" class="form-control form-control-sm p-2.5" rows="2" placeholder="Enter address for vehicle return / pickup..." required></textarea>
+                        </div>
                     </div>
 
                     <!-- ID & PROOF OF BILLING UPLOADS -->
                     <div class="row g-3 mb-3">
                         <div class="col-12">
-                            <label class="form-label small fw-bold text-danger">
-                                <i class="bi bi-card-heading me-1"></i>Primary ID (e.g. Driver's License)
-                            </label>
-                            <input type="file" name="primary_id" class="form-control form-control-sm" accept="image/*,.pdf" required>
+                            <label class="form-label small fw-bold text-danger"><i class="bi bi-card-heading me-1"></i>Primary ID (e.g. Driver's License)</label>
+                            <div class="file-upload-row">
+                                <div class="custom-file-upload" onclick="document.getElementById('file_primary').click();">
+                                    <i class="bi bi-cloud-arrow-up upload-icon"></i>
+                                    <span class="upload-text">Click to upload Primary ID</span>
+                                    <input type="file" name="primary_id" id="file_primary" accept="image/*,.pdf" required>
+                                </div>
+                                <button type="button" class="btn-preview-file" id="btnPreviewPrimary" disabled onclick="previewFile('file_primary')">
+                                    <i class="bi bi-eye"></i><span>View</span>
+                                </button>
+                            </div>
                         </div>
                         <div class="col-12">
                             <label class="form-label small fw-bold text-muted">Secondary ID (Optional)</label>
-                            <input type="file" name="secondary_id" class="form-control form-control-sm" accept="image/*,.pdf">
+                            <div class="file-upload-row">
+                                <div class="custom-file-upload" onclick="document.getElementById('file_secondary').click();">
+                                    <i class="bi bi-cloud-arrow-up upload-icon"></i>
+                                    <span class="upload-text">Click to upload Secondary ID</span>
+                                    <input type="file" name="secondary_id" id="file_secondary" accept="image/*,.pdf">
+                                </div>
+                                <button type="button" class="btn-preview-file" id="btnPreviewSecondary" disabled onclick="previewFile('file_secondary')">
+                                    <i class="bi bi-eye"></i><span>View</span>
+                                </button>
+                            </div>
                         </div>
                         <div class="col-12">
-                            <label class="form-label small fw-bold text-muted">Proof of Billing</label>
-                            <input type="file" name="proof_of_billing" class="form-control form-control-sm" accept="image/*,.pdf">
+                            <label class="form-label small fw-bold text-muted">Proof of Billing (Optional)</label>
+                            <div class="file-upload-row">
+                                <div class="custom-file-upload" onclick="document.getElementById('file_billing').click();">
+                                    <i class="bi bi-cloud-arrow-up upload-icon"></i>
+                                    <span class="upload-text">Click to upload Proof of Billing</span>
+                                    <input type="file" name="proof_of_billing" id="file_billing" accept="image/*,.pdf">
+                                </div>
+                                <button type="button" class="btn-preview-file" id="btnPreviewBilling" disabled onclick="previewFile('file_billing')">
+                                    <i class="bi bi-eye"></i><span>View</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
                     <!-- PROOF OF PAYMENT SECTION -->
                     <div class="col-12 mb-3">
-                        <label for="proofOfPaymentInput" class="form-label small fw-bold text-muted mb-1">Proof of Payment</label>
+                        <label class="form-label small fw-bold text-danger mb-1">Proof of Payment (Required)</label>
                         
-                        <div class="d-flex align-items-center gap-2">
-                            <div class="flex-grow-1">
-                                <input type="file" name="proof_of_payment" id="proofOfPaymentInput" class="form-control form-control-sm" accept="image/*,.pdf" required>
+                        <div class="file-upload-row">
+                            <div class="custom-file-upload" onclick="document.getElementById('file_payment').click();">
+                                <i class="bi bi-cloud-arrow-up upload-icon"></i>
+                                <span class="upload-text">Click to upload Proof of Payment</span>
+                                <input type="file" name="proof_of_payment" id="file_payment" accept="image/*,.pdf" required>
                             </div>
+                            <button type="button" class="btn-preview-file" id="btnPreviewPayment" disabled onclick="previewFile('file_payment')">
+                                <i class="bi bi-eye"></i><span>View</span>
+                            </button>
 
                             <div class="border rounded-3 p-1 pe-2 theme-bg-alt d-inline-flex align-items-center gap-2 shadow-sm flex-shrink-0" 
-                                style="cursor: pointer; height: 38px; transition: all 0.2s ease-in-out;" 
+                                style="cursor: pointer; height: auto; transition: all 0.2s ease-in-out;" 
                                 data-bs-toggle="modal" 
                                 data-bs-target="#qrCodeModal" 
                                 title="Click to view & scan Payment QR Code">
                                 
-                                <div class="rounded overflow-hidden bg-light d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                <div class="rounded overflow-hidden bg-light d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
                                     <img src="<?= $qr_image_src ?>" 
                                         id="formQrCodeThumbnail" 
                                         alt="Payment QR Code" 
@@ -1533,6 +1762,9 @@ function resetFilters() {
 
                         <div class="form-text text-muted mt-1" style="font-size: 11.5px;">
                             Scan QR code to pay down payment / full amount, then attach receipt photo.
+                        </div>
+                        <div class="form-text text-danger mt-1" style="font-size: 11.5px; font-weight: 600;">
+                            <i class="bi bi-exclamation-circle me-1"></i> Note: Initial down payment must be a minimum of ₱500.
                         </div>
                     </div>
 
@@ -1572,7 +1804,7 @@ function resetFilters() {
                     </div>
 
                     <!-- PRICING BREAKDOWN DISPLAY -->
-                    <div class="p-3 theme-bg-alt rounded border">
+                    <div class="p-3 theme-bg-alt rounded border mt-4">
                         <div class="d-flex justify-content-between align-items-center mb-1 small text-muted">
                             <span>Base Rental Rate:</span>
                             <span id="userDisplayBasePrice">₱0.00</span>
@@ -1725,8 +1957,10 @@ let currentCalendarDate = new Date();
 let selectedStartDate = null;
 let selectedEndDate = null;
 
-function openBookingModal(car) {
-    tempCarData = car;
+function openBookingModal(carId) {
+    const dataEl = document.getElementById('carData-' + carId);
+    if (!dataEl) { console.error('Car data not found for id', carId); return; }
+    tempCarData = JSON.parse(dataEl.textContent);
     document.getElementById('agreeCheckbox').checked = false;
     document.getElementById('proceedToBookingBtn').disabled = true;
     
@@ -1799,6 +2033,15 @@ async function showBookingForm() {
     
     if (document.getElementById('startDate')) document.getElementById('startDate').value = '';
     if (document.getElementById('endDate')) document.getElementById('endDate').value = '';
+    
+    // Reset return address, file inputs and their preview buttons
+    if (document.getElementById('returnDeliveryAddress')) document.getElementById('returnDeliveryAddress').value = '';
+    [['file_primary', 'btnPreviewPrimary'], ['file_secondary', 'btnPreviewSecondary'],
+     ['file_billing', 'btnPreviewBilling'], ['file_payment', 'btnPreviewPayment']].forEach(([fid, bid]) => {
+        const f = document.getElementById(fid), b = document.getElementById(bid);
+        if (f) f.value = '';
+        if (b) b.disabled = true;
+    });
     
     selectedStartDate = null;
     selectedEndDate = null;
@@ -2319,8 +2562,72 @@ function fallbackCalculateTotal(hours) {
     if (confirmBtn) confirmBtn.disabled = false;
 }
 
+// --- PREVIEW FILE FUNCTION ---
+function previewFile(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input || !input.files || !input.files[0]) return;
+
+    const file = input.files[0];
+    const fileUrl = URL.createObjectURL(file);
+    const isImage = file.type.startsWith('image/');
+
+    if (typeof Swal === 'undefined') {            // fallback if SweetAlert isn't loaded
+        window.open(fileUrl, '_blank');
+        return;
+    }
+
+    if (isImage) {
+        Swal.fire({
+            imageUrl: fileUrl,
+            imageAlt: 'Document Preview',
+            showConfirmButton: false,
+            showCloseButton: true,
+            width: 'auto',
+            padding: '2rem',
+            background: '#141414',
+            customClass: { image: 'custom-swal-image' }
+        });
+    } else {
+        Swal.fire({
+            title: 'Document Selected',
+            text: 'This is a PDF or non-image file. It cannot be previewed here.',
+            icon: 'info',
+            confirmButtonColor: '#ffcc00',
+            confirmButtonText: 'OK',
+            customClass: { popup: 'swal-theme-modal', confirmButton: 'swal-theme-btn' }
+        });
+    }
+}
+
 // Event Listeners
 document.addEventListener('DOMContentLoaded', function() {
+    // Enable "View" buttons once a file is chosen
+    [['file_primary', 'btnPreviewPrimary'], ['file_secondary', 'btnPreviewSecondary'],
+     ['file_billing', 'btnPreviewBilling'], ['file_payment', 'btnPreviewPayment']].forEach(([fid, bid]) => {
+        const f = document.getElementById(fid), b = document.getElementById(bid);
+        if (f && b) f.addEventListener('change', function() { b.disabled = !this.files.length; });
+    });
+
+    // Live search (filters only the vehicles currently on this page)
+    const searchInput = document.getElementById('liveSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
+            let visible = 0;
+            document.querySelectorAll('.car-card').forEach(card => {
+                const match = (card.dataset.brand || '').includes(query)
+                           || (card.dataset.model || '').includes(query)
+                           || (card.dataset.type  || '').includes(query);
+                card.classList.toggle('d-none', !match);
+                if (match) visible++;
+            });
+            const counter = document.getElementById('visibleCount');
+            if (counter) counter.innerText = visible;
+            const none = document.getElementById('searchNoResults');
+            if (none) none.classList.toggle('d-none', visible > 0 || query === '');
+        });
+    }
+
     // Offcanvas Mobile Sidebar Toggle Script
     const dynamicHeaderArea = document.querySelector('.main-content header, .main-content nav, .container-fluid');
     let toggleBtn = null;
