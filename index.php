@@ -1,15 +1,40 @@
+
 <?php
-require_once 'config/database.php';
+// TEMPORARY DEBUGGING — disable on production after troubleshooting
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+error_reporting(E_ALL);
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-$popular_query = "
-    SELECT c.*, COUNT(b.id) as total_bookings 
-    FROM cars c
-    LEFT JOIN bookings b ON c.id = b.car_id
-    GROUP BY c.id
-    ORDER BY total_bookings DESC
-    LIMIT 6";
+try {
+    require_once __DIR__ . '/config/database.php';
 
-$popular_result = mysqli_query($conn, $popular_query);
+    $popular_query = "
+        SELECT c.*, COUNT(b.id) AS total_bookings
+        FROM cars c
+        LEFT JOIN bookings b ON c.id = b.car_id
+        GROUP BY c.id
+        ORDER BY total_bookings DESC
+        LIMIT 6
+    ";
+
+    $popular_result = mysqli_query($conn, $popular_query);
+
+} catch (Throwable $e) {
+    http_response_code(500);
+
+    echo '<h2>Application Error</h2>';
+    echo '<pre>' .
+        htmlspecialchars(
+            $e->getMessage(),
+            ENT_QUOTES | ENT_SUBSTITUTE,
+            'UTF-8'
+        ) .
+        '</pre>';
+
+    error_log('index.php error: ' . $e->getMessage());
+    exit;
+}
 ?>
 
 <!DOCTYPE html>
