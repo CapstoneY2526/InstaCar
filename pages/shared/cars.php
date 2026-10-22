@@ -1031,7 +1031,7 @@
                                                     </button>
                                                     
                                                     <!-- Hidden Form for Delete -->
-                                                    <form id="deleteCarForm<?= $car['id'] ?>" action="process/car_actions.php" method="POST" style="display:none;" onsubmit="return confirm('Are you sure you want to completely remove this vehicle listing?')">
+                                                    <form id="deleteCarForm<?= $car['id'] ?>" action="handlers/car_actions.php" method="POST" style="display:none;" onsubmit="return confirm('Are you sure you want to completely remove this vehicle listing?')">
                                                         <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                                         <input type="hidden" name="delete_car" value="<?= $car['id'] ?>">
                                                     </form>
@@ -1093,7 +1093,7 @@
     <!-- Register Car Modal -->
     <div class="modal fade" id="addCarModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-xl-custom modal-dialog-centered">
-            <form action="process/car_actions.php" method="POST" enctype="multipart/form-data" class="modal-content border-0 shadow-lg rounded-4" id="vehicleRegisterForm">
+            <form action="handlers/car_actions.php" method="POST" enctype="multipart/form-data" class="modal-content border-0 shadow-lg rounded-4" id="vehicleRegisterForm">
                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                 <div class="modal-header border-0 pb-0 px-4 pt-4">
                     <h5 class="fw-bold mb-0">Register New Vehicle</h5>
@@ -1293,7 +1293,7 @@
 <?php foreach ($cars as $car): ?>
 <div class="modal fade" id="editCarModal<?= $car['id'] ?>" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-xl-custom modal-dialog-centered">
-        <form action="process/car_actions.php" method="POST" enctype="multipart/form-data" class="modal-content border-0 shadow-lg rounded-4" id="vehicleEditForm<?= $car['id'] ?>">
+        <form action="handlers/car_actions.php" method="POST" enctype="multipart/form-data" class="modal-content border-0 shadow-lg rounded-4" id="vehicleEditForm<?= $car['id'] ?>">
             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
             <input type="hidden" name="update_car" value="1">
             <input type="hidden" name="id" value="<?= $car['id'] ?>">
@@ -1999,7 +1999,7 @@
                     formData.append('car_id', currentActiveCarId);
                     formData.append('image_name', chosenFilename);
 
-                    fetch('process/car_actions.php', {
+                    fetch('handlers/car_actions.php', {
                         method: 'POST',
                         body: formData
                     })
